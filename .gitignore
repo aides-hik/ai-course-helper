@@ -1,0 +1,17 @@
+# Local browser profiles and cached test dependencies.
+/tests/.*-profile/
+/tests/browser-fixture/
+
+# Generated browser pages, screenshots and image fixtures.
+/tests/*-browser.html
+/tests/browser-dom.html
+/tests/browser-stderr.log
+/tests/*.png
+/tests/images-integration-*.gif
+
+# Python caches and local credentials.
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example
