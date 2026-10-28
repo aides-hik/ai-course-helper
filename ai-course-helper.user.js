@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         网课学习助手 · OpenAI / DeepSeek 解题版
 // @namespace    local.openai.course-helper
-// @version      0.6.1
+// @version      0.8.0
 // @description  超星/智慧树学习助手，支持 OpenAI / DeepSeek 文字及图片解题、可配置并发，默认关闭自动提交。
 // @license      MIT
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50' y='54' text-anchor='middle' dominant-baseline='central' font-size='82' font-family='Apple Color Emoji,Segoe UI Emoji,Noto Color Emoji,sans-serif'%3E%F0%9F%92%AF%3C/text%3E%3C/svg%3E
@@ -748,7 +748,7 @@
               quiz.blocked = true;
               question.answerStatus = "error";
               question.answer = [(answers == null ? void 0 : answers.length) ? "模型答案无法完整且唯一地匹配视频选项，请手动作答" : ((_c = response.error) == null ? void 0 : _c.message) || (((_d = response.meta) == null ? void 0 : _d.billing_result) === "exhausted" ? "API 额度不足，请检查所选服务的账户余额" : "模型未返回可用答案，请手动作答")];
-              options.log(`视频弹题搜题未完成，请到「答题」页签查看原因`, "warning");
+              options.log(`视频弹题搜题未完成，请到「解题」页签查看原因`, "warning");
               return;
             }
             quiz.applying = true;
@@ -1131,6 +1131,14 @@
     let now = /* @__PURE__ */ new Date();
     return formatDateTime(now);
   };
+  const LOG_HISTORY_LIMIT = 500;
+  const formatLogExport = (logs) => [
+    `AI 网课学习助手 v${getScriptInfo().version}`,
+    `导出时间：${new Date().toLocaleString()}`,
+    `当前保留 ${logs.length} 条日志（最多 ${LOG_HISTORY_LIMIT} 条）`,
+    "",
+    ...logs.map((item) => `[${item.time}] [${item.type || "primary"}] ${item.message}`)
+  ].join("\n");
   const useLogStore = pinia.defineStore("logStore", {
     state: () => ({
       logList: []
@@ -1143,6 +1151,8 @@
           type
         };
         this.logList.push(log);
+        if (this.logList.length > LOG_HISTORY_LIMIT)
+          this.logList.splice(0, this.logList.length - LOG_HISTORY_LIMIT);
       }
     }
   });
@@ -2070,6 +2080,58 @@
     setup(__props) {
       const configStore = useConfigStore();
       const announcements = vue.ref([]);
+      const copyStatus = vue.ref("");
+      const manualLogText = vue.ref("");
+      const manualLogField = vue.ref(null);
+      const copying = vue.ref(false);
+      let copyResetTimer = 0;
+      vue.onBeforeUnmount(() => clearTimeout(copyResetTimer));
+      const logMode = vue.ref("brief");
+      const cleanDiagnosticText = (message) => String(message || "").replace(/（(?:#prevNextFocusNext|\.nextChapter)）/g, "");
+      const overview = vue.computed(() => {
+        const logs = __props.logList || [];
+        let snapshot = null;
+        let snapshotIndex = -1;
+        for (let index = logs.length - 1; index >= 0; index--) {
+          const match = String(logs[index].message || "").match(/^\[章节诊断\].*?：(\d+) 个页面，(\d+) 个任务，(\d+) 个已确认/);
+          if (match) {
+            snapshot = { total: Number(match[2]), completed: Number(match[3]) };
+            snapshotIndex = index;
+            break;
+          }
+        }
+        const recent = logs.slice(Math.max(0, snapshotIndex));
+        const latestReason = [...recent].reverse().find((item) => String(item.message || "").startsWith("[章节诊断] 当前原因："));
+        const latestJump = [...recent].reverse().find((item) => String(item.message || "").startsWith("[章节诊断] 跳章："));
+        const reason = latestReason ? cleanDiagnosticText(latestReason.message).replace(/^\[章节诊断\] 当前原因：/, "").split("；")[0] : "";
+        const jump = latestJump ? cleanDiagnosticText(latestJump.message).replace(/^\[章节诊断\] 跳章：/, "") : "";
+        const total = snapshot?.total || 0;
+        const completed = Math.min(total, snapshot?.completed || 0);
+        const isComplete = total > 0 && completed === total;
+        const needsReview = /不可用|无法确认|未识别到|不可访问|已停止|暂停自动|无法确定/.test(reason) || /已取消|已停止/.test(jump);
+        const state = needsReview ? "attention" : isComplete ? "complete" : total ? "running" : "waiting";
+        return {
+          state, total, completed,
+          badge: state === "complete" ? "已完成" : state === "running" ? "进行中" : state === "attention" ? "待核对" : "等待任务",
+          title: isComplete ? "本页任务已完成" : state === "attention" ? "有任务需要查看" : total ? "继续当前学习任务" : "准备好开始学习",
+          note: jump || reason || (total ? "任务状态会随平台反馈更新。" : "打开课程或题目页面，学习状态会显示在这里。"),
+          progress: total ? `${completed} / ${total}` : "等待识别"
+        };
+      });
+      const providerName = vue.computed(() => configStore.ai?.provider === "deepseek" ? "DeepSeek" : "OpenAI");
+      const modelName = vue.computed(() => {
+        const ai = configStore.ai || {};
+        return (ai.provider === "deepseek" ? ai.deepseekModel : ai.model) || "尚未选择模型";
+      });
+      const visibleLogs = vue.computed(() => (logMode.value === "detail" ? __props.logList || [] : (__props.logList || []).filter((item) => {
+        const message = String(item.message || "");
+        if (message.startsWith("[章节诊断]")) return /^\[章节诊断\] (?:当前原因：|跳章：)/.test(message) && !/等待页面稳定/.test(message);
+        return !/^(?:用户悉知：|脚本加载成功，正在解析网页|请不要多个脚本同时使用|如果脚本出现异常|正在解析任务点，请稍等|检测到用户进入到章节学习页面)/.test(message);
+      })).map((item) => ({
+        ...item,
+        displayMessage: logMode.value !== "detail" && /^\[章节诊断\] (?:当前原因：|跳章：)/.test(String(item.message || ""))
+          ? cleanDiagnosticText(item.message).replace(/^\[章节诊断\] (?:当前原因：|跳章：)/, "").split("；")[0] : item.message
+      })));
       vue.onMounted(async () => {
         announcements.value = await getNotice();
       });
@@ -2081,50 +2143,99 @@
         event.preventDefault();
         configStore.menuIndex = ANSWER_TAB_NAME$1;
       };
+      const copyLogs = async () => {
+        if (copying.value) return;
+        clearTimeout(copyResetTimer);
+        const text = formatLogExport(__props.logList || []);
+        copying.value = true;
+        manualLogText.value = "";
+        copyStatus.value = "正在复制…";
+        try {
+          if (typeof navigator.clipboard?.writeText !== "function")
+            throw new Error("Clipboard unavailable");
+          await navigator.clipboard.writeText(text);
+          copyStatus.value = "日志已复制";
+          copyResetTimer = setTimeout(() => { copyStatus.value = ""; }, 2400);
+        } catch {
+          manualLogText.value = text;
+          copyStatus.value = "自动复制未成功，请在下方全选并复制日志。";
+          await vue.nextTick();
+          manualLogField.value?.focus();
+          manualLogField.value?.select();
+        } finally {
+          copying.value = false;
+        }
+      };
       return (_ctx, _cache) => {
         const _component_el_text = vue.resolveComponent("el-text");
-        const _component_el_divider = vue.resolveComponent("el-divider");
         const _component_el_scrollbar = vue.resolveComponent("el-scrollbar");
-        return vue.openBlock(), vue.createElementBlock("div", _hoisted_1$5, [
-          vue.createVNode(_sfc_main$9, { items: announcements.value }, null, 8, ["items"]),
+        return vue.createElementVNode("div", _hoisted_1$5, [
+          vue.createVNode(_sfc_main$9, { items: announcements.value }),
+          vue.createElementVNode("section", { class: "ai-overview", "aria-label": "当前学习状态" }, [
+            vue.createElementVNode("div", { class: "ai-overview-heading" }, [
+              vue.createElementVNode("span", null, "学习状态"),
+              vue.createElementVNode("span", { class: "ai-status-badge", "data-state": overview.value.state }, overview.value.badge)
+            ]),
+            vue.createElementVNode("h2", { class: "ai-overview-title" }, overview.value.title),
+            vue.createElementVNode("p", { class: "ai-overview-note" }, overview.value.note),
+            vue.createElementVNode("div", { class: "ai-overview-metrics" }, [
+              vue.createElementVNode("div", { class: "ai-metric" }, [
+                vue.createElementVNode("span", { class: "ai-metric-label" }, "任务进度"),
+                vue.createElementVNode("strong", { class: "ai-metric-value" }, overview.value.progress)
+              ]),
+              vue.createElementVNode("div", { class: "ai-metric" }, [
+                vue.createElementVNode("span", { class: "ai-metric-label" }, "模型服务"),
+                vue.createElementVNode("strong", { class: "ai-metric-value", title: modelName.value }, providerName.value)
+              ])
+            ])
+          ]),
+          vue.createElementVNode("div", { class: "ai-log-toolbar" }, [
+            vue.createElementVNode("div", { class: "ai-log-heading" }, [
+              vue.createElementVNode("span", null, "运行记录"),
+              vue.createElementVNode("span", { class: "ai-log-count" }, String(_ctx.logList.length))
+            ]),
+            vue.createElementVNode("button", {
+              type: "button", class: "ai-copy-logs", disabled: copying.value,
+              onClick: copyLogs
+            }, copying.value ? "正在复制…" : copyStatus.value === "日志已复制" ? "已复制" : "复制日志")
+          ]),
+          vue.createElementVNode("div", { class: "ai-log-controls" }, [
+            vue.createElementVNode("div", { class: "ai-log-modes", role: "group", "aria-label": "日志显示方式" }, [
+              vue.createElementVNode("button", { type: "button", class: "ai-log-mode", "aria-pressed": logMode.value === "brief", onClick: () => logMode.value = "brief" }, "简要"),
+              vue.createElementVNode("button", { type: "button", class: "ai-log-mode", "aria-pressed": logMode.value === "detail", onClick: () => logMode.value = "detail" }, "详细")
+            ]),
+            vue.createElementVNode("span", { class: "ai-log-mode-note" }, logMode.value === "brief" ? "仅显示关键进展" : "包含全部诊断记录")
+          ]),
+          vue.createElementVNode("p", { class: "ai-log-copy-status", role: "status", "aria-live": "polite" }, copyStatus.value),
+          manualLogText.value ? vue.createElementVNode("textarea", {
+            ref: manualLogField, class: "ai-log-export", readonly: true, rows: 6,
+            "aria-label": "可手动复制的日志", value: manualLogText.value,
+            onFocus: (event) => event.target.select()
+          }) : null,
           vue.createVNode(_component_el_scrollbar, {
             always: "",
             class: "log",
-            "max-height": "230px",
+            "max-height": "300px",
             onClick: handleLogClick
           }, {
-            default: vue.withCtx(() => [
-              (vue.openBlock(true), vue.createElementBlock(vue.Fragment, null, vue.renderList(_ctx.logList, (item, index) => {
-                return vue.openBlock(), vue.createElementBlock("div", { key: index }, [
+            default: () => visibleLogs.value.length ? visibleLogs.value.map((item, index) =>
+                vue.createElementVNode("div", { key: index, class: "ai-log-entry", "data-type": item.type || "primary" }, [
                   vue.createVNode(_component_el_text, {
                     class: "log-time",
                     size: "small",
                     type: "info"
                   }, {
-                    default: vue.withCtx(() => [
-                      vue.createTextVNode(vue.toDisplayString(item.time), 1)
-                    ]),
-                    _: 2
-                  }, 1024),
-                  vue.createVNode(_component_el_text, null, {
-                    default: vue.withCtx(() => [
-                      vue.createTextVNode(" ")
-                    ]),
-                    _: 1
+                    default: () => item.time
                   }),
+                  vue.createElementVNode("span", { class: "ai-log-dot", "aria-hidden": "true" }),
                   vue.createVNode(_component_el_text, {
+                    class: "ai-log-message",
                     type: item.type ? item.type : "primary",
                     size: "small",
-                    textContent: item.message
-                  }, null, 8, ["type", "textContent"]),
-                  vue.createVNode(_component_el_divider, {
-                    class: "log-divider",
-                    "border-style": "dashed"
+                    textContent: item.displayMessage
                   })
-                ]);
-              }), 128))
-            ]),
-            _: 1
+                ])
+              ) : [vue.createElementVNode("p", { class: "ai-log-empty" }, "暂时没有新的进展，完整记录可切换到详细视图。")]
           })
         ]);
       };
@@ -2293,10 +2404,10 @@
           if (generation === fetchGeneration) {state.loading = false; pendingController = null;}
         }
       };
-      const field = (label, key, options = {}) => vue.createElementVNode("label", {class: "ai-field"}, [
-        vue.createElementVNode("span", {class: "ai-label"}, label),
+      const field = (label, key, options = {}) => vue.createElementVNode("div", {class: "ai-field"}, [
+        vue.createElementVNode("label", {class: "ai-label", for: `ai-setting-${key}`}, label),
         vue.createVNode(vue.resolveComponent("el-input"), {
-          key,
+          key, id: `ai-setting-${key}`,
           modelValue: config.ai[key],
           "onUpdate:modelValue": (value) => config.ai[key] = value,
           size: "small", autocomplete: "off", ...options
@@ -2314,10 +2425,16 @@
           : [["default", "默认（跟随模型）"], ["none", "关闭思考（none）"], ["minimal", "极低（minimal）"], ["low", "低（low）"], ["medium", "中（medium）"], ["high", "高（high）"], ["xhigh", "极高（xhigh）"], ["max", "最高（max）"]];
         const effort = config.ai[effortKey] === undefined ? "default" : config.ai[effortKey];
         return vue.createElementVNode("div", {class: "ai-config"}, [
+        vue.createElementVNode("div", {class: "ai-config-scroll", tabindex: "0", "aria-label": "解题配置"}, [
+        vue.createElementVNode("section", {class: "ai-config-section", "aria-label": "模型连接"}, [
+        vue.createElementVNode("div", {class: "ai-section-heading"}, [
+          vue.createElementVNode("h3", null, "模型连接"),
+          vue.createElementVNode("span", null, "OpenAI / DeepSeek")
+        ]),
         vue.createElementVNode("label", {class: "ai-field"}, [
           vue.createElementVNode("span", {class: "ai-label"}, "模型服务"),
           vue.createElementVNode("select", {
-            class: "ai-provider-select", "aria-label": "模型服务", value: config.ai.provider ?? "openai",
+            id: "ai-setting-provider", class: "ai-provider-select", "aria-label": "模型服务", value: config.ai.provider ?? "openai",
             onChange: (event) => {
               const provider = event.target.value;
               if (provider === "openai" || provider === "deepseek") config.ai.provider = provider;
@@ -2327,14 +2444,7 @@
             vue.createElementVNode("option", {value: "deepseek"}, "DeepSeek")
           ])
         ]),
-        field("解题请求 URL", requestUrlKey, {type: "url", class: "ai-request-url", "aria-label": "解题请求 URL", placeholder: AI_ENDPOINT_DEFAULTS[provider]}),
-        field("模型列表 URL（留空自动推算）", modelsUrlKey, {type: "url", class: "ai-models-url", "aria-label": "模型列表 URL", placeholder: endpoints.modelsUrl || "填写完整的模型列表地址"}),
-        vue.createElementVNode("p", {class: `ai-note ai-url-status${endpoints.error || endpoints.modelsError ? " ai-model-error" : ""}`}, endpoints.error || endpoints.modelsError || `获取模型：${endpoints.modelsUrl}`),
-        vue.createVNode(vue.resolveComponent("el-button"), {
-          size: "small", class: "ai-reset-urls", onClick: () => {config.ai[requestUrlKey] = AI_ENDPOINT_DEFAULTS[provider]; config.ai[modelsUrlKey] = "";}
-        }, {default: () => "恢复默认地址"}),
-        vue.createElementVNode("p", {class: "ai-note"}, `${providerName === "OpenAI" ? "使用 Responses 接口的完整地址（通常以 /responses 结尾）" : "使用 Chat Completions 接口的完整地址（通常以 /chat/completions 结尾）"}。密钥、题目和图片会发送到填写的地址，请使用你信任的服务；优先使用 HTTPS。`),
-        field(`${providerName} API Key`, deepseek ? "deepseekApiKey" : "apiKey", {type: "password", "show-password": true, placeholder: "sk-…"}),
+        field(`${providerName} API Key`, deepseek ? "deepseekApiKey" : "apiKey", {type: "password", "show-password": true, placeholder: "sk-…", spellcheck: false}),
         vue.createElementVNode("div", {class: "ai-model-row"}, [
           field("模型名称", modelKey, {placeholder: deepseek ? "deepseek-flash" : "填写账号可用、支持结构化输出的模型"}),
           vue.createVNode(vue.resolveComponent("el-button"), {
@@ -2344,63 +2454,98 @@
         state.models.length ? vue.createElementVNode("label", {class: "ai-field"}, [
           vue.createElementVNode("span", {class: "ai-label"}, "可用模型"),
           vue.createElementVNode("select", {
-            class: "ai-provider-select ai-model-select", "aria-label": "选择已获取的模型",
+            id: "ai-setting-model-list", class: "ai-provider-select ai-model-select", "aria-label": "选择已获取的模型",
             value: state.models.some((model) => model.id === config.ai[modelKey]) ? config.ai[modelKey] : "",
             onChange: (event) => {if (state.models.some((model) => model.id === event.target.value)) config.ai[modelKey] = event.target.value;}
           }, [vue.createElementVNode("option", {value: "", disabled: true}, "请选择模型"), ...state.models.map((model) => vue.createElementVNode("option", {value: model.id, key: model.id}, model.id + (model.name && model.name !== model.id ? ` · ${model.name}` : "") + (model.inputModalities?.includes("image") ? " · 支持图片" : "")))])
         ]) : null,
         state.message ? vue.createElementVNode("p", {class: `ai-note ai-model-status${state.failed ? " ai-model-error" : ""}`, role: "status", "aria-live": "polite"}, state.message) : null,
-        vue.createElementVNode("p", {class: "ai-note"}, deepseek ? "deepseek-flash 支持图片题；deepseek-v4-pro 仅处理文字题。" : "使用支持 Responses API 与结构化输出的模型；图片题还需支持图像输入。"),
+        vue.createElementVNode("p", {class: "ai-note"}, deepseek ? "图片题需使用支持图像的模型；deepseek-v4-pro 仅处理文字。" : "模型需支持 Responses 和结构化输出，图片题还需图像输入。"),
+        field("解题请求 URL", requestUrlKey, {type: "textarea", rows: 2, resize: "vertical", class: "ai-request-url", "aria-label": "解题请求 URL", "aria-describedby": `ai-url-message-${provider}`, "aria-invalid": !!endpoints.error, spellcheck: false, placeholder: AI_ENDPOINT_DEFAULTS[provider]}),
+        vue.createElementVNode("p", {id: `ai-url-message-${provider}`, class: `ai-note${endpoints.error ? " ai-model-error" : ""}`}, endpoints.error || `${deepseek ? "Chat Completions" : "Responses"} 完整接口地址。密钥和题目会发往此地址。`),
+        vue.createElementVNode("details", {class: "ai-endpoint-details"}, [
+          vue.createElementVNode("summary", null, [
+            vue.createElementVNode("span", null, "模型列表与接口设置"),
+            vue.createElementVNode("span", {class: "ai-detail-state"}, endpoints.modelsError ? "检查地址" : "可选")
+          ]),
+          vue.createElementVNode("div", {class: "ai-details-body"}, [
+            field("模型列表 URL（留空自动推算）", modelsUrlKey, {type: "textarea", rows: 2, resize: "vertical", class: "ai-models-url", "aria-label": "模型列表 URL", "aria-describedby": `ai-models-url-message-${provider}`, "aria-invalid": !!endpoints.modelsError, spellcheck: false, placeholder: endpoints.modelsUrl || "填写完整的模型列表地址"}),
+            vue.createElementVNode("p", {id: `ai-models-url-message-${provider}`, class: `ai-note ai-url-status${endpoints.error || endpoints.modelsError ? " ai-model-error" : ""}`}, endpoints.error || endpoints.modelsError || `获取模型：${endpoints.modelsUrl}`),
+            vue.createVNode(vue.resolveComponent("el-button"), {
+              size: "small", class: "ai-reset-urls", onClick: () => {config.ai[requestUrlKey] = AI_ENDPOINT_DEFAULTS[provider]; config.ai[modelsUrlKey] = "";}
+            }, {default: () => "恢复默认地址"}),
+            vue.createElementVNode("p", {class: "ai-note"}, "模型列表地址会接收当前服务的密钥，请使用可信服务并优先使用 HTTPS。")
+          ])
+        ])
+        ]),
+        vue.createElementVNode("section", {class: "ai-config-section", "aria-label": "解题偏好"}, [
+        vue.createElementVNode("div", {class: "ai-section-heading"}, [
+          vue.createElementVNode("h3", null, "解题偏好")
+        ]),
         vue.createElementVNode("label", {class: "ai-field"}, [
           vue.createElementVNode("span", {class: "ai-label"}, "思考程度"),
           vue.createElementVNode("select", {
-            class: "ai-provider-select ai-reasoning-select", "aria-label": "思考程度", value: effort,
+            id: "ai-setting-effort", class: "ai-provider-select ai-reasoning-select", "aria-label": "思考程度", value: effort,
             onChange: (event) => {if (effortChoices.some(([value]) => value === event.target.value)) config.ai[effortKey] = event.target.value;}
           }, [
             ...effortChoices.map(([value, label]) => vue.createElementVNode("option", {value, key: value}, label)),
             ...(effortChoices.some(([value]) => value === effort) ? [] : [vue.createElementVNode("option", {value: effort, disabled: true}, "无效设置，请重新选择")])
           ])
         ]),
-        vue.createElementVNode("p", {class: "ai-note"}, "思考程度越高，通常耗时和用量越多。各模型支持的档位不同，不确定时选默认；模型列表不代表均适合解题。"),
+        vue.createElementVNode("p", {class: "ai-note"}, "不确定时选默认。更高档位通常耗时和用量更多，支持情况以模型为准。"),
+        vue.createElementVNode("div", {class: "ai-concurrency-heading"}, [
+          vue.createElementVNode("div", null, [
+            vue.createElementVNode("label", {class: "ai-label", for: "ai-setting-concurrent"}, "并发答题"),
+            vue.createElementVNode("p", {class: "ai-note"}, config.ai.concurrentEnabled === true ? "同时解答剩余题目，跳过已有作答" : "当前逐题解答")
+          ]),
+          vue.createVNode(vue.resolveComponent("el-switch"), {
+            id: "ai-setting-concurrent", class: "ai-concurrent-switch", "aria-label": "并发答题", modelValue: config.ai.concurrentEnabled === true,
+            "onUpdate:modelValue": (value) => config.ai.concurrentEnabled = value === true
+          })
+        ]),
         vue.createElementVNode("div", {class: "ai-metrics"}, [
           vue.createElementVNode("div", {class: "ai-field"}, [
-            vue.createElementVNode("span", {class: "ai-label"}, "并发答题"),
-            vue.createVNode(vue.resolveComponent("el-switch"), {
-              class: "ai-concurrent-switch", "aria-label": "并发答题", modelValue: config.ai.concurrentEnabled === true,
-              "onUpdate:modelValue": (value) => config.ai.concurrentEnabled = value === true
-            })
-          ]),
-          vue.createElementVNode("label", {class: "ai-field"}, [
-            vue.createElementVNode("span", {class: "ai-label"}, "同时解题数"),
+            vue.createElementVNode("label", {class: "ai-label", for: "ai-setting-concurrency"}, "同时解题数"),
             vue.createVNode(vue.resolveComponent("el-input-number"), {
-              class: "ai-concurrency-count", "aria-label": "同时解题数", modelValue: config.ai.concurrency,
+              id: "ai-setting-concurrency", class: "ai-concurrency-count", "aria-label": "同时解题数", modelValue: config.ai.concurrency,
               "onUpdate:modelValue": (value) => config.ai.concurrency = Number.isFinite(Number(value)) ? Math.min(2500, Math.max(1, Math.floor(Number(value)))) : 3,
               min: 1, max: 2500, step: 1, "step-strictly": true, disabled: config.ai.concurrentEnabled !== true,
               size: "small", "controls-position": "right"
             })
-          ])
+          ]),
+          vue.createElementVNode("p", {class: "ai-note ai-concurrency-hint"}, "1–2500 题\n不足时仅处理剩余题目")
         ]),
-        vue.createElementVNode("p", {class: "ai-note"}, "开启后跳过已有作答，只并发解答当前页剩余题目；填空须全部填完才跳过。默认同时 3 题，可设 1–2500 题；不足设定数量时只处理剩余题目。"),
+        vue.createElementVNode("details", {class: "ai-advanced-details"}, [
+        vue.createElementVNode("summary", null, "超时与输出上限"),
+        vue.createElementVNode("div", {class: "ai-details-body"}, [
         vue.createElementVNode("div", {class: "ai-metrics"}, [
-          vue.createElementVNode("label", {class: "ai-field"}, [
-            vue.createElementVNode("span", {class: "ai-label"}, "超时（秒）"),
+          vue.createElementVNode("div", {class: "ai-field"}, [
+            vue.createElementVNode("label", {class: "ai-label", for: "ai-setting-timeout"}, "超时（秒）"),
             vue.createVNode(vue.resolveComponent("el-input-number"), {
+              id: "ai-setting-timeout", "aria-label": "超时（秒）",
               modelValue: config.ai.timeoutSeconds, "onUpdate:modelValue": (v) => config.ai.timeoutSeconds = v,
               min: 15, max: 300, step: 15, size: "small", "controls-position": "right"
             })
           ]),
-          vue.createElementVNode("label", {class: "ai-field"}, [
-            vue.createElementVNode("span", {class: "ai-label"}, "输出上限"),
+          vue.createElementVNode("div", {class: "ai-field"}, [
+            vue.createElementVNode("label", {class: "ai-label", for: "ai-setting-max-output"}, "输出上限"),
             vue.createVNode(vue.resolveComponent("el-input-number"), {
+              id: "ai-setting-max-output", "aria-label": "输出上限",
               modelValue: config.ai.maxOutputTokens, "onUpdate:modelValue": (v) => config.ai.maxOutputTokens = v,
               min: 1024, max: 32768, step: 1024, size: "small", "controls-position": "right"
             })
           ])
+        ])
+        ])
+        ])
+        ])
         ]),
+        vue.createElementVNode("div", {class: "ai-savebar"}, [
+        vue.createElementVNode("p", {class: "ai-note"}, "两家配置分别保存，刷新后开始使用。"),
         vue.createVNode(vue.resolveComponent("el-button"), {
           type: "primary", size: "small", class: "ai-save", onClick: () => {persistConfig(config); window.location.reload();}
-        }, {default: () => "保存并刷新"}),
-        vue.createElementVNode("p", {class: "ai-note"}, "两家的地址、密钥、模型和思考程度分别保存，改完后保存并刷新。题目及图片发给当前配置地址，按服务规则计费。图片无法读取时会提示手动处理。")
+        }, {default: () => "保存并刷新"})
+        ])
       ]);
       };
     }
@@ -2435,12 +2580,12 @@
           ]);
         });
         return vue.createElementVNode("div", { class: "answer-pane" }, [
-          vue.withDirectives(vue.createElementVNode("div", { class: "question-sheet" }, [
+          vue.withDirectives(vue.createElementVNode("div", { class: "question-sheet", tabindex: "0", "aria-label": "解答结果" }, [
             _hoisted_2$3,
             ...slips
           ]), [[vue.vShow, _ctx.questionList.length]]),
-          vue.createVNode(_sfc_ai_config),
-          vue.withDirectives(vue.createElementVNode("p", { class: "question-empty" }, "暂无题目"), [[vue.vShow, !_ctx.questionList.length]])
+          vue.withDirectives(vue.createElementVNode("p", { class: "question-empty" }, "暂无题目，可先完成模型配置。"), [[vue.vShow, !_ctx.questionList.length]]),
+          vue.createVNode(_sfc_ai_config)
         ]);
       };
     }
@@ -2458,7 +2603,7 @@
     "aria-label": "使用教程",
     tabindex: "0"
   };
-  const _hoisted_2$2 = /* @__PURE__ */ vue.createStaticVNode('<header class="guide-header"><h2 class="guide-title">AI 解题配置</h2><p class="guide-subtitle">支持 OpenAI / DeepSeek</p></header><ol class="guide-list"><li class="guide-card"><h3 class="guide-card-title">1. 选择模型服务</h3><p class="guide-copy">打开「答题」，选择 OpenAI 或 DeepSeek，填写对应的 API Key。两家的密钥和模型分别保存。DeepSeek 默认使用支持图片的 deepseek-flash；OpenAI 需填写支持 Responses API 与结构化输出的模型，图片题还需图像输入能力。</p></li><li class="guide-card"><h3 class="guide-card-title">2. 保存并开始</h3><p class="guide-copy">点击「保存并刷新」。开启「并发答题」可同时解答当前页多道题，并跳过已有作答；填空须全部填完。关闭时逐题处理。答案及简短解析显示在面板中，改完后保存并刷新。</p></li><li class="guide-card"><h3 class="guide-card-title">3. 核对答案</h3><p class="guide-copy">默认关闭章节自动提交、视频弹题自动处理和考试自动切换。模型可能答错，请核对后再提交。需要自动处理视频弹题时可在设置中启用，该功能会提交弹题。</p></li><li class="guide-card"><h3 class="guide-card-title">费用和密钥</h3><p class="guide-copy">题目和图片仅发送给所选服务，API 按用量计费。支持题干及选项中的 PNG、JPEG、WebP、GIF 图片；图片无法读取时请手动处理。密钥只保存到脚本管理器中。</p></li></ol>', 2);
+  const _hoisted_2$2 = /* @__PURE__ */ vue.createStaticVNode('<header class="guide-header"><h2 class="guide-title">AI 解题配置</h2><p class="guide-subtitle">支持 OpenAI / DeepSeek</p></header><ol class="guide-list"><li class="guide-card"><h3 class="guide-card-title">1. 选择模型服务</h3><p class="guide-copy">打开「解题」，选择 OpenAI 或 DeepSeek，填写对应的 API Key。两家的密钥和模型分别保存。DeepSeek 默认使用支持图片的 deepseek-flash；OpenAI 需填写支持 Responses API 与结构化输出的模型，图片题还需图像输入能力。</p></li><li class="guide-card"><h3 class="guide-card-title">2. 保存并开始</h3><p class="guide-copy">点击「保存并刷新」。开启「并发答题」可同时解答当前页多道题，并跳过已有作答；填空须全部填完。关闭时逐题处理。答案及简短解析显示在面板中，改完后保存并刷新。</p></li><li class="guide-card"><h3 class="guide-card-title">3. 核对答案</h3><p class="guide-copy">默认关闭章节自动提交、视频弹题自动处理和考试自动切换。模型可能答错，请核对后再提交。需要自动处理视频弹题时可在设置中启用，该功能会提交弹题。</p></li><li class="guide-card"><h3 class="guide-card-title">费用和密钥</h3><p class="guide-copy">题目和图片仅发送给所选服务，API 按用量计费。支持题干及选项中的 PNG、JPEG、WebP、GIF 图片；图片无法读取时请手动处理。密钥只保存到脚本管理器中。</p></li></ol>', 2);
   const _hoisted_4$1 = [
     _hoisted_2$2
   ];
@@ -7546,10 +7691,37 @@
       const view = element.ownerDocument?.defaultView;
       for (let current = element; current; current = current.parentElement) {
         const style = view?.getComputedStyle?.(current) || current.style;
+        if (current.disabled || current.getAttribute?.("aria-disabled") === "true" || current.getAttribute?.("disabled") != null || current.matches?.(":disabled,.disabled,.is-disabled")) return false;
         if (current.hidden || current.getAttribute?.("aria-hidden") === "true" || style?.display === "none" || style?.visibility === "hidden" || style?.visibility === "collapse" || style?.opacity === "0" || style?.pointerEvents === "none") return false;
       }
       return typeof element.getClientRects !== "function" || element.getClientRects().length > 0;
     } catch { return false; }
+  };
+  const cxGetChapterNavigation = (root, outerDocument) => {
+    const find = (scope, selector) => {
+      const matches = Array.from(scope?.querySelectorAll?.(selector) || []);
+      const first = scope?.querySelector?.(selector);
+      if (first && !matches.includes(first)) matches.unshift(first);
+      return [...new Set(matches)];
+    };
+    const modern = find(root, "#prevNextFocusNext");
+    const legacy = find(outerDocument, ".jb_btn.jb_btn_92.fr.fs14.nextChapter");
+    const available = (buttons) => buttons.filter((button) => typeof button.click === "function" && cxChapterNavigationAllowed(button));
+    const modernAvailable = available(modern);
+    const legacyAvailable = available(legacy);
+    const base = { modern, legacy, modernAvailable, legacyAvailable };
+    const select = (element, kind, label, selector) => ({ ...base, element, kind, label, selector,
+      // Keep navigation attributes in memory only; they can contain signed
+      // paths. A reused DOM node must not change its destination while waiting.
+      action: JSON.stringify(["href", "onclick", "data-url", "data-href", "data-knowledgeid", "data-chapterid", "data-cardid", "data-nextid"].map((name) => element.getAttribute?.(name) ?? null)),
+      handler: element.onclick
+    });
+    // These are alternative platform controls. A hidden legacy control must
+    // not block the visible next-section button shown on the current page.
+    if (modernAvailable.length === 1) return select(modernAvailable[0], "section", "下一节", "#prevNextFocusNext");
+    if (modernAvailable.length > 1) return { ...base, element: null, reason: "存在多个可用的下一节按钮，无法确定跳转目标" };
+    if (legacyAvailable.length === 1) return select(legacyAvailable[0], "chapter", "下一章", ".nextChapter");
+    return { ...base, element: null, reason: legacyAvailable.length > 1 ? "存在多个可用的下一章按钮，无法确定跳转目标" : "下一节和下一章按钮均不可用" };
   };
   const useCxChapterLogic = () => {
     const logStore = useLogStore();
@@ -7579,41 +7751,94 @@
     let lastFrameChange = Date.now();
     let navigationPending = false;
     let lastCompletionMessage = "";
-    const isFinishedTask = (iframe) => {
-      var _a;
+    let lastDiagnosticKey = "";
+    let lastDiagnosticTime = 0;
+    let lastNavigationMessage = "";
+    let frameNumbers = new WeakMap();
+    let nextFrameNumber = 0;
+    const hasTaskClass = (element, name) => {
+      const className = typeof element?.className === "string" ? element.className : "";
+      return className.split(/\s+/).includes(name) || !!element?.classList?.contains(name);
+    };
+    const getTaskIconInfo = (iframe) => {
+      // Bind a sibling icon to exactly one resource. A completed icon elsewhere
+      // in the chapter must never mark another video or exercise complete.
+      for (let container = iframe.parentElement; container; container = container.parentElement) {
+        const icons = Array.from(container.children || []).filter((child) => hasTaskClass(child, "ans-job-icon"));
+        if (icons.length) {
+          const frames = Array.from(container.querySelectorAll?.("iframe") || []);
+          return { container, icons: icons.length, frames: frames.length,
+            icon: icons.length === 1 && frames.length === 1 && frames[0] === iframe ? icons[0] : null };
+        }
+        if (hasTaskClass(container, "ans-attach-ct") || /^(?:BODY|HTML)$/i.test(container.tagName || ""))
+          return { container, icons: 0, frames: container.querySelectorAll?.("iframe")?.length || 0, icon: null };
+      }
+      return { container: iframe.parentElement, icons: 0, frames: 0, icon: null };
+    };
+    const getTaskIcon = (iframe) => getTaskIconInfo(iframe).icon;
+    const getTaskCompletionMarker = (iframe) => {
       let element = iframe;
       while (element) {
-        const className = typeof element.className === "string" ? element.className : "";
-        if (className.split(/\s+/).includes("ans-job-finished") || ((_a = element.classList) == null ? void 0 : _a.contains("ans-job-finished")))
-          return true;
+        if (hasTaskClass(element, "ans-job-finished")) return element === iframe ? "iframe 完成标记" : "祖先容器完成标记";
+        if (hasTaskClass(element, "ans-attach-ct")) break;
         element = element.parentElement;
       }
-      return false;
+      return hasTaskClass(getTaskIcon(iframe), "ans-job-finished") ? "所属任务图标完成标记" : "";
+    };
+    const isFinishedTask = (iframe) => !!getTaskCompletionMarker(iframe);
+    const getChapterScope = (root = document.documentElement) => {
+      const outerFrames = Array.from(root?.querySelectorAll?.("iframe") || []);
+      const isCardsFrame = (iframe) => {
+        try { return /\/knowledge\/cards(?:\/|$)/i.test(new URL(iframe.src || "", window.location.href).pathname); }
+        catch { return false; }
+      };
+      // The outer study page also contains editor, upload and helper frames.
+      // Select the chapter before walking its descendants, never by DOM order.
+      let candidates = outerFrames.filter(isCardsFrame);
+      if (!candidates.length) candidates = outerFrames.filter((iframe) => (iframe.id || iframe.getAttribute?.("id")) === "iframe" && !isTaskFrame(iframe));
+      if (!candidates.length) candidates = outerFrames.filter((iframe) => {
+        const raw = typeof iframe.getAttribute === "function" ? iframe.getAttribute("src") : iframe.src;
+        return !!raw?.trim() && !/^(?:about:|javascript:|data:)/i.test(raw.trim())
+          && !hasTaskClass(iframe, "edui-default") && !isTaskFrame(iframe);
+      });
+      const iframe = candidates.length === 1 ? candidates[0] : null;
+      return { iframe, ignoredCount: iframe ? outerFrames.length - 1 : 0,
+        reason: candidates.length > 1 ? "发现多个章节主页面，无法确认当前章节，暂停自动处理"
+          : !iframe ? "未找到可确认的章节主页面，等待平台加载" : "" };
     };
     const getChapterPage = () => {
-      const iframe = document.documentElement.querySelector("iframe");
+      const { iframe } = getChapterScope();
+      let iframeDocument = null;
+      try { iframeDocument = iframe?.contentDocument || null; } catch { /* diagnosed below */ }
       return {
         url: window.location.href,
         iframe,
         src: (iframe == null ? void 0 : iframe.src) || "",
-        document: (iframe == null ? void 0 : iframe.contentDocument) || null
+        document: iframeDocument
       };
     };
     const isSamePage = (left, right) => left.url === right.url && left.iframe === right.iframe && left.src === right.src && left.document === right.document;
-    const collectChapterFrames = (root, result = [], visited = new Set()) => {
-      for (const iframe of Array.from(root?.querySelectorAll?.("iframe") || [])) {
-        if (visited.has(iframe)) continue;
+    const collectChapterFrames = (root) => {
+      const result = [];
+      const visited = new Set();
+      const visit = (iframe) => {
+        if (visited.has(iframe)) return;
         visited.add(iframe);
         result.push(iframe);
+        // Platform completion is authoritative. An already completed player's
+        // internal blank/cross-origin helper frames are not additional tasks.
+        if (isTaskFrame(iframe) && isFinishedTask(iframe)) return;
         try {
-          collectChapterFrames(iframe.contentDocument?.documentElement, result, visited);
+          for (const child of Array.from(iframe.contentDocument?.documentElement?.querySelectorAll?.("iframe") || [])) visit(child);
         } catch {
           // Cross-origin task frames remain in the list and block completion.
         }
-      }
+      };
+      const { iframe } = getChapterScope(root);
+      if (iframe) visit(iframe);
       return result;
     };
-    const isTaskFrame = (iframe) => /api\/work|modules\/(?:video|audio|ppt|doc|pdf|innerbook)/i.test(iframe.src || "") || !!iframe.parentElement?.querySelector?.(".ans-job-icon");
+    const isTaskFrame = (iframe) => /api\/work|modules\/(?:video|audio|ppt|doc|pdf|innerbook)/i.test(iframe.src || "") || !!getTaskIcon(iframe);
     const isWorkConfirmed = (iframe, iframeDocument) => {
       if (isFinishedTask(iframe)) return true;
       const status = iframeDocument?.querySelector?.(".work-status,.workStatus,#workStatus,[data-work-status]");
@@ -7628,26 +7853,123 @@
       const other = right[index];
       return item.iframe === other.iframe && item.doc === other.doc && item.src === other.src && item.ready === other.ready && item.finished === other.finished;
     });
-    const canAdvanceChapter = (root) => {
-      const allFrames = collectChapterFrames(root).filter((iframe) => !/^javascript:/i.test(iframe.src || ""));
-      if (allFrames.some((iframe) => {
+    const frameNumber = (iframe) => {
+      if (!frameNumbers.has(iframe)) frameNumbers.set(iframe, ++nextFrameNumber);
+      return frameNumbers.get(iframe);
+    };
+    const safeFrameAddress = (raw) => {
+      if (!raw) return "未设置地址";
+      try {
+        const parsed = new URL(raw, window.location.href);
+        if (/^https?:$/.test(parsed.protocol)) return (parsed.origin + parsed.pathname).slice(0, 220);
+        return parsed.protocol === "about:" ? "about:blank/srcdoc" : parsed.protocol + "（地址已省略）";
+      } catch { return "无法解析的地址（已省略）"; }
+    };
+    const inspectChapterCompletion = (root) => {
+      const scope = getChapterScope(root);
+      const frames = collectChapterFrames(root).filter((iframe) => !/^javascript:/i.test(iframe.src || "")).map((iframe) => {
+        const task = isTaskFrame(iframe);
+        const marker = getTaskCompletionMarker(iframe);
+        const iconInfo = getTaskIconInfo(iframe);
+        const src = iframe.src || "";
+        const type = /api\/work/i.test(src) ? "作业" : /modules\/video/i.test(src) ? "视频"
+          : /modules\/audio/i.test(src) ? "音频" : /modules\/(?:ppt|doc|pdf)/i.test(src) ? "文档"
+          : /modules\/innerbook/i.test(src) ? "电子书" : task ? "其他任务" : "容器";
+        let doc = null;
+        let documentState = "不可访问或尚未创建";
+        let workConfirmed = false;
+        let media = null;
         try {
-          const doc = iframe.contentDocument;
-          return !iframe.isConnected || !doc || doc.readyState !== "complete" || doc.URL === "about:blank";
-        } catch { return true; }
-      })) return false;
-      const frames = allFrames.filter(isTaskFrame);
-      return frames.length > 0 && frames.every((iframe) => {
-        try {
-          return iframe.isConnected && (isFinishedTask(iframe) || iframe.src.includes("api/work") && isWorkConfirmed(iframe, iframe.contentDocument));
-        } catch {
-          return false;
-        }
+          doc = iframe.contentDocument;
+          if (doc) {
+            documentState = doc.readyState !== "complete" ? "加载中（" + doc.readyState + "）"
+              : doc.URL === "about:blank" ? "空白页 about:blank" : "已加载";
+            if (type === "作业") workConfirmed = isWorkConfirmed(iframe, doc);
+            if (type === "视频" || type === "音频") {
+              const element = doc.documentElement?.querySelector?.("video, audio");
+              if (element) media = { current: Number.isFinite(element.currentTime) ? Math.floor(element.currentTime) : null,
+                duration: Number.isFinite(element.duration) ? Math.floor(element.duration) : null,
+                ended: !!element.ended, paused: !!element.paused };
+            }
+          }
+        } catch { documentState = "不可访问（跨域或读取失败）"; }
+        const confirmed = !!marker || workConfirmed;
+        let blocked = "";
+        if (!iframe.isConnected) blocked = "页面已从文档移除";
+        else if (task && marker) { /* platform marker is authoritative */ }
+        else if (!doc || doc.readyState !== "complete" || doc.URL === "about:blank") blocked = documentState;
+        else if (task && !confirmed) blocked = media?.ended ? "播放已结束，但未识别到平台完成标记" : "未识别到平台完成标记";
+        const rawSource = typeof iframe.getAttribute === "function" ? iframe.getAttribute("src") : iframe.src;
+        const sourceState = !rawSource?.trim() ? "未设置或为空" : safeFrameAddress(rawSource);
+        return { iframe, number: frameNumber(iframe), task, type, marker: marker || (workConfirmed ? "平台作业提交状态" : "无"),
+          confirmed, blocked, address: safeFrameAddress(src), documentState, media,
+          sourceState,
+          classes: typeof iframe.className === "string" ? iframe.className.slice(0, 120) : "",
+          containerClasses: typeof iconInfo.container?.className === "string" ? iconInfo.container.className.slice(0, 160) : "",
+          iconClasses: typeof iconInfo.icon?.className === "string" ? iconInfo.icon.className.slice(0, 160) : "",
+          iconCount: iconInfo.icons, resourceCount: iconInfo.frames };
       });
+      const tasks = frames.filter((frame) => frame.task);
+      return { frames, tasks, scope, complete: !scope.reason && tasks.length > 0 && !frames.some((frame) => frame.blocked) };
+    };
+    const canAdvanceChapter = (root) => inspectChapterCompletion(root).complete;
+    const logChapterNavigation = (message) => {
+      if (message === lastNavigationMessage) return;
+      lastNavigationMessage = message;
+      logStore.addLog("[章节诊断] 跳章：" + message, "primary");
+    };
+    const logChapterDiagnostics = (root, phase = "") => {
+      try {
+        const report = inspectChapterCompletion(root);
+        const autoNext = !!configStore.platformParams.cx.parts[0].params[1].value;
+        const onlyAnswers = !!configStore.platformParams.cx.parts[0].params[2]?.value;
+        const navigation = cxGetChapterNavigation(root, document);
+        const buttonState = (buttons, available) => !buttons.length ? "未找到" : available.length === 1 ? "可用" : available.length > 1 ? "多个可用，归属不明" : "隐藏或禁用";
+        const modernState = buttonState(navigation.modern, navigation.modernAvailable);
+        const legacyState = buttonState(navigation.legacy, navigation.legacyAvailable);
+        const selectedControl = navigation.element ? navigation.label + " " + navigation.selector : "无（" + navigation.reason + "）";
+        const blocked = report.frames.filter((frame) => frame.blocked);
+        const reason = report.scope.reason || (!report.frames.length ? "未发现章节 iframe"
+          : blocked.length ? blocked.slice(0, 20).map((frame) => "页面#" + frame.number + "：" + frame.blocked).join("；") + (blocked.length > 20 ? "；另有 " + (blocked.length - 20) + " 个阻塞页面" : "")
+          : !report.tasks.length ? "未识别到任务页面"
+          : !autoNext ? "平台任务已完成，自动跳章开关关闭"
+          : Date.now() - lastFrameChange < 1500 ? "平台任务已完成，等待页面稳定 1.5 秒"
+          : !navigation.element ? "平台任务已完成，下一步按钮不可用（" + navigation.reason + "）"
+          : navigationPending ? "已进入跳章流程，等待平台页面切换" : "完成条件满足，可以跳章");
+        const slowFrame = activeScan?.frame && Date.now() - activeScan.frameStartedAt >= 1000 ? frameNumber(activeScan.frame) : 0;
+        const processing = slowFrame ? "正在处理页面#" + slowFrame : phase || "扫描状态";
+        // The playback position is useful in the message but must not make a
+        // progressing video emit a new diagnostic on every 500 ms poll.
+        const key = JSON.stringify([reason, phase, slowFrame, autoNext, onlyAnswers, modernState, legacyState, selectedControl,
+          report.frames.map(({ iframe, media, ...frame }) => ({ ...frame, media: media && { ended: media.ended, paused: media.paused, duration: media.duration } }))]);
+        const now = Date.now();
+        if (key === lastDiagnosticKey && now - lastDiagnosticTime < 30000) return;
+        lastDiagnosticKey = key;
+        lastDiagnosticTime = now;
+        logStore.addLog(`[章节诊断] ${processing}：${report.frames.length} 个页面，${report.tasks.length} 个任务，${report.tasks.filter((frame) => frame.confirmed).length} 个已确认；自动跳章=${autoNext ? "开" : "关"}，只答题=${onlyAnswers ? "开" : "关"}`, "primary");
+        if (report.scope.ignoredCount) logStore.addLog(`[章节诊断] 扫描范围仅限章节主页面及其内容，已排除外层 ${report.scope.ignoredCount} 个非章节框架（编辑器或辅助页面）`, "info");
+        const rows = report.frames.length <= 20 ? report.frames : [...blocked, ...report.frames.filter((frame) => !frame.blocked)].slice(0, 20);
+        for (const frame of rows) {
+          const media = frame.media ? `；播放=${frame.media.current ?? "未知"}/${frame.media.duration ?? "未知"}秒，结束=${frame.media.ended ? "是" : "否"}，暂停=${frame.media.paused ? "是" : "否"}` : "";
+          logStore.addLog(`[章节诊断] 页面#${frame.number} ${frame.type}；${frame.address}；原始src=${frame.sourceState}；文档=${frame.documentState}；完成依据=${frame.marker}；iframe类=${frame.classes || "无"}；容器类=${frame.containerClasses || "无"}；图标类=${frame.iconClasses || "未唯一绑定"}；直属图标=${frame.iconCount}，容器内资源=${frame.resourceCount}${media}；${frame.blocked ? "阻塞=" + frame.blocked : "未阻塞"}${frame.task && frame.marker !== "无" ? "（不检查已完成任务的内部辅助页）" : ""}`, frame.blocked ? "warning" : "info");
+        }
+        if (report.frames.length > rows.length) logStore.addLog(`[章节诊断] 本组仅列出 ${rows.length}/${report.frames.length} 个页面，优先显示阻塞项`, "info");
+        logStore.addLog("[章节诊断] 当前原因：" + reason + `；任务下一步=${modernState}，章节下一章=${legacyState}；本次选择=${selectedControl}`, report.complete ? "primary" : "warning");
+      } catch {
+        // Diagnostics are observational; DOM changes while inspecting must not
+        // interrupt the existing task processor or relax completion checks.
+        const now = Date.now();
+        if (lastDiagnosticKey !== "diagnostic-read-failed" || now - lastDiagnosticTime >= 30000) {
+          lastDiagnosticKey = "diagnostic-read-failed";
+          lastDiagnosticTime = now;
+          logStore.addLog("[章节诊断] 读取状态时页面发生变化，下次扫描会重新记录", "info");
+        }
+      }
     };
     const checkChapterCompletion = async (root, context, taskId) => {
       if (!context.isCurrent() || taskId !== currentWatchIframeTaskId || navigationPending) return;
       const complete = canAdvanceChapter(root);
+      logChapterDiagnostics(root);
       const message = complete ? "平台已确认本页任务完成" : "本页仍有未确认完成的任务，请核对平台状态";
       if (message !== lastCompletionMessage) {
         lastCompletionMessage = message;
@@ -7655,41 +7977,54 @@
       }
       if (!complete || !configStore.platformParams.cx.parts[0].params[1].value || Date.now() - lastFrameChange < 1500) return;
       const before = chapterSnapshot(root);
-      const nextBtn = root.querySelector("#prevNextFocusNext");
-      const button = document.querySelector(".jb_btn.jb_btn_92.fr.fs14.nextChapter");
-      if (!cxChapterNavigationAllowed(nextBtn) || !cxChapterNavigationAllowed(button) || typeof button.click !== "function") return;
+      const navigation = cxGetChapterNavigation(root, document);
+      const button = navigation.element;
+      if (!button) return;
       const page = typeof getChapterPage === "function" ? getChapterPage() : null;
       const chapterKey = page ? JSON.stringify([cxStableResourceUrl(page.url, page.url, "chapter"), cxStableResourceUrl(page.src, page.url, "chapter")]) : "";
       const departed = checkChapterCompletion.departed || (checkChapterCompletion.departed = new Set());
       if (chapterKey && departed.has(chapterKey)) {
         navigationPending = true;
+        logChapterNavigation("已停止：当前章节之前已经离开，触发防循环保护");
         logStore.addLog("检测到已经离开的章节再次出现，已停止自动跳章，请手动核对课程进度", "warning");
         return;
       }
       navigationPending = true;
+      logChapterNavigation("检查通过，已选择" + navigation.label + "，等待设置的操作间隔后再次核对");
       const allowed = await aiWaitForDelay(Number(configStore.otherParams.params[0].value) || 0, {
         signal: context.signal,
         isCurrent: () => context.isCurrent() && taskId === currentWatchIframeTaskId && !!configStore.platformParams.cx.parts[0].params[1].value
       });
       if (!allowed) {
-        if (taskId === currentWatchIframeTaskId) navigationPending = false;
+        if (taskId === currentWatchIframeTaskId) {
+          navigationPending = false;
+          if (context.isCurrent()) logChapterNavigation("已取消：跳章开关关闭或当前处理已中止");
+        }
         return;
       }
       if (!context.isCurrent() || taskId !== currentWatchIframeTaskId) return;
       if (!configStore.platformParams.cx.parts[0].params[1].value) {
         navigationPending = false;
+        logChapterNavigation("已取消：自动跳章开关关闭");
         return;
       }
       if (!sameFrameSnapshot(before, chapterSnapshot(root)) || !canAdvanceChapter(root)) {
         navigationPending = false;
+        logChapterNavigation("已取消：等待期间页面、任务或完成状态发生变化，将重新检查");
+        logChapterDiagnostics(root);
         return;
       }
-      if (root.querySelector("#prevNextFocusNext") !== nextBtn || document.querySelector(".jb_btn.jb_btn_92.fr.fs14.nextChapter") !== button || !cxChapterNavigationAllowed(nextBtn) || !cxChapterNavigationAllowed(button)) {
+      const currentNavigation = cxGetChapterNavigation(root, document);
+      if (currentNavigation.element !== button || currentNavigation.kind !== navigation.kind || currentNavigation.action !== navigation.action || currentNavigation.handler !== navigation.handler || !cxChapterNavigationAllowed(button)) {
         navigationPending = false;
+        logChapterNavigation("已取消：下一步按钮被替换、隐藏、禁用或跳转目标改变");
         return;
       }
       if (chapterKey) departed.add(chapterKey);
-      try { button.click(); }
+      try {
+        logChapterNavigation("已点击" + navigation.label + "（" + navigation.selector + "），等待平台切换页面");
+        button.click();
+      }
       catch (error) {
         if (chapterKey) departed.delete(chapterKey);
         navigationPending = false;
@@ -7715,18 +8050,26 @@
         lastFrameChange = Date.now();
         navigationPending = false;
         lastCompletionMessage = "";
+        lastDiagnosticKey = "";
+        lastDiagnosticTime = 0;
+        lastNavigationMessage = "";
+        frameNumbers = new WeakMap();
+        nextFrameNumber = 0;
         questionStore.clearQuestion();
         configStore.menuIndex = HOME_TAB_NAME;
         currentPage = page;
         (_b = page.iframe) == null ? void 0 : _b.addEventListener("load", onRootIframeLoad);
       }
-      if (!page.iframe || !page.document || page.document.readyState !== "complete" || page.document.URL === "about:blank")
+      if (!page.iframe || !page.document || page.document.readyState !== "complete" || page.document.URL === "about:blank") {
+        logChapterDiagnostics(document.documentElement, "等待章节主页面加载");
         return;
+      }
       const frames = chapterSnapshot(document.documentElement);
       if (!sameFrameSnapshot(lastFrames, frames)) {
         lastFrames = frames;
         lastFrameChange = Date.now();
       }
+      logChapterDiagnostics(document.documentElement);
       if (activeScan) return;
       const signal = chapterController.signal;
       watchIframe(document.documentElement, {
@@ -7744,7 +8087,11 @@
         rxjs.from(allIframes).pipe(concatMap((iframe) => {
           if (thisTaskId !== currentWatchIframeTaskId || !context.isCurrent())
             return Promise.resolve();
-          return processIframe(iframe, context);
+          scan.frame = iframe;
+          scan.frameStartedAt = Date.now();
+          return processIframe(iframe, context).finally(() => {
+            if (scan.frame === iframe) scan.frame = null;
+          });
         })).subscribe({
           complete: async () => {
             try { await checkChapterCompletion(documentElement, context, thisTaskId); }
@@ -8045,7 +8392,7 @@
       });
     };
     const processIframeBody = async (iframe, iframeSrc, iframeDocument, iframeWindow, context) => {
-      var _a, _b;
+      var _a;
       if (!context.isCurrent())
         return;
       if (iframeSrc.includes("javascript:"))
@@ -8064,7 +8411,7 @@
         if (configStore.platformParams.cx.parts[0].params[2].value) {
           logStore.addLog("只答题，不做其他已开启，可在设置里调整", "primary");
         } else {
-          const ansJobIcon = (_b = iframe.parentElement) == null ? void 0 : _b.querySelector(".ans-job-icon");
+          const ansJobIcon = getTaskIcon(iframe);
           if (ansJobIcon) {
             configStore.menuIndex = HOME_TAB_NAME;
             if (iframeSrc.includes("video")) {
@@ -8084,6 +8431,15 @@
     const processIframe = async (iframe, context) => {
       if (iframe.src.includes("javascript:"))
         return Promise.resolve();
+      if (isTaskFrame(iframe) && isFinishedTask(iframe)) {
+        // The marker belongs to the chapter document; checking it does not
+        // require a finished resource's own document to load or be accessible.
+        try {
+          if (/modules\/(?:video|audio)/i.test(iframe.src || ""))
+            iframe.contentDocument?.documentElement?.querySelector("video, audio")?.pause();
+        } catch { /* completed media may be cross-origin */ }
+        return { state: "completed" };
+      }
       if (!iframe.contentDocument || !iframe.contentWindow)
         return Promise.resolve();
       if (!await waitIframeLoad(iframe, context)) return { state: "waiting" };
@@ -8601,7 +8957,7 @@
           const model = (typeof rawModel === "string" ? rawModel.trim() : "") || (provider === "deepseek" ? "deepseek-flash" : "");
           if (!["openai", "deepseek"].includes(provider) || typeof key !== "string" || !key.trim() || !model) {
             configStore.menuIndex = ANSWER_TAB_NAME;
-            logStore.addLog("请在「答题」选择模型服务，填写对应的 API Key 和模型名称，再点击保存并刷新。", "warning");
+            logStore.addLog("请在「解题」选择模型服务，填写对应的 API Key 和模型名称，再点击保存并刷新。", "warning");
             updateVisible(true);
             return;
           }
@@ -8615,13 +8971,13 @@
       const tabs = vue.computed(() => [
         {
           name: "0",
-          label: "首页",
+          label: "概览",
           component: _sfc_main$8,
           props: { logList: logStore.logList }
         },
         {
           name: ANSWER_TAB_NAME,
-          label: "答题",
+          label: "解题",
           component: _sfc_main$6,
           props: { questionList: questionStore.questionList }
         },
@@ -8633,12 +8989,12 @@
         },
         {
           name: "3",
-          label: "教程",
+          label: "帮助",
           component: Tutorial
         },
         {
           name: "4",
-          label: "协议",
+          label: "关于",
           component: ScriptTip
         }
       ]);
@@ -8679,36 +9035,22 @@
     emits: ["toggleZoom"],
     setup(__props, { emit: __emit }) {
       const emit = __emit;
+      const config = useConfigStore();
       const toggleZoom = (value) => {
         emit("toggleZoom", value);
       };
       return (_ctx, _cache) => {
-        const _component_el_icon = vue.resolveComponent("el-icon");
-        return vue.openBlock(), vue.createElementBlock("div", {
-          onMousedown: _cache[2] || (_cache[2] = vue.withModifiers(() => {
-          }, ["stop"]))
+        return vue.createElementVNode("div", {
+          onMousedown: (event) => event.stopPropagation()
         }, [
-          vue.createVNode(_component_el_icon, {
-            onClick: _cache[0] || (_cache[0] = ($event) => toggleZoom(true)),
-            class: "zoom-icon",
-            size: "small"
-          }, {
-            default: vue.withCtx(() => [
-              vue.createVNode(vue.unref(minus_default))
-            ]),
-            _: 1
-          }),
-          vue.createVNode(_component_el_icon, {
-            onClick: _cache[1] || (_cache[1] = ($event) => toggleZoom(false)),
-            class: "zoom-icon is-spaced",
-            size: "small"
-          }, {
-            default: vue.withCtx(() => [
-              vue.createVNode(vue.unref(full_screen_default))
-            ]),
-            _: 1
-          })
-        ], 32);
+          vue.createElementVNode("button", {
+            type: "button", class: "ai-panel-toggle",
+            "aria-label": config.isMinus ? "展开面板" : "收起面板",
+            title: config.isMinus ? "展开面板" : "收起面板",
+            "aria-expanded": !config.isMinus,
+            onClick: () => toggleZoom(!config.isMinus)
+          }, [vue.createVNode(vue.unref(config.isMinus ? full_screen_default : minus_default), {"aria-hidden": "true"})])
+        ]);
       };
     }
   });
@@ -8716,14 +9058,54 @@
   const _hoisted_2 = { class: "title" };
   const _hoisted_3 = { class: "minus" };
   const WINDOW_EDGE_OFFSET = 11;
-  const PANEL_WIDTH = 360;
-  const MINIMIZED_PANEL_HEIGHT = 35;
+  const PANEL_WIDTH = 396;
+  const MINIMIZED_PANEL_HEIGHT = 88;
   const _sfc_main$1 = /* @__PURE__ */ vue.defineComponent({
     __name: "layout",
     setup(__props) {
       const isShow = vue.ref(false);
       const configStore = useConfigStore();
       const currentPlatformName = vue.computed(() => configStore.platformParams[configStore.platformName].name);
+      const panelRoot = vue.ref(null);
+      let uiMounted = false;
+      let motionEpoch = 0;
+      let panelMotion = null;
+      let motionTarget = null;
+      const animatePanelContent = async (selector, offset, duration, axis = "Y") => {
+        if (!uiMounted) return;
+        const epoch = ++motionEpoch;
+        await vue.nextTick();
+        if (epoch !== motionEpoch) return;
+        const element = panelRoot.value?.querySelector(selector);
+        if (!element || typeof element.animate !== "function") return;
+        const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+        const current = panelMotion && motionTarget === element ? getComputedStyle(element) : null;
+        const initial = current ? { opacity: current.opacity, transform: reduced ? "none" : current.transform }
+          : { opacity: 0.78, transform: reduced ? "none" : `translate${axis}(${offset}px)` };
+        panelMotion?.cancel();
+        motionTarget = element;
+        // Visibility, focus and vShow update immediately. This short reveal is
+        // decorative feedback on the content that is already available.
+        panelMotion = element.animate([initial, { opacity: 1, transform: "none" }], {
+          duration: reduced ? 100 : duration, easing: "cubic-bezier(0.22, 1, 0.36, 1)"
+        });
+        const animation = panelMotion;
+        animation.onfinish = () => {
+          if (panelMotion === animation) { panelMotion = null; motionTarget = null; }
+        };
+      };
+      vue.onMounted(() => { uiMounted = true; });
+      vue.watch(() => configStore.isMinus, (collapsed) => {
+        if (collapsed) {
+          const content = panelRoot.value?.querySelector(".ai-panel-content");
+          const focused = content?.getRootNode()?.activeElement;
+          if (focused && content.contains(focused)) panelRoot.value?.querySelector(".ai-panel-toggle")?.focus();
+        }
+        void animatePanelContent(collapsed ? ".ai-minimized-note" : ".ai-panel-content", collapsed ? -3 : -5, collapsed ? 160 : 220);
+      }, { flush: "post" });
+      vue.watch(() => configStore.menuIndex, (next, previous) => {
+        if (!configStore.isMinus) void animatePanelContent(".el-tabs__content", Number(next) > Number(previous) ? 6 : -6, 160, "X");
+      }, { flush: "post" });
       const stopConfigSync = watchConfigStorage(configStore);
       vue.onBeforeUnmount(stopConfigSync);
       vue.watch(configStore, (newVal) => {
@@ -8771,18 +9153,19 @@
         document.removeEventListener("mouseup", endDrag);
       };
       vue.onBeforeUnmount(() => {
+        uiMounted = false;
+        ++motionEpoch;
+        panelMotion?.cancel();
         endDrag();
         window.removeEventListener("resize", fitPanelToViewport);
       });
       return (_ctx, _cache) => {
-        const _component_el_icon = vue.resolveComponent("el-icon");
-        const _component_el_tooltip = vue.resolveComponent("el-tooltip");
-        const _component_el_text = vue.resolveComponent("el-text");
-        const _component_el_divider = vue.resolveComponent("el-divider");
         const _component_el_card = vue.resolveComponent("el-card");
-        return vue.withDirectives((vue.openBlock(), vue.createElementBlock("div", {
+        return vue.withDirectives(vue.createElementVNode("div", {
+          ref: panelRoot,
           style: vue.normalizeStyle(moveStyle.value),
-          class: "main-page"
+          class: "main-page",
+          "data-collapsed": configStore.isMinus ? "true" : "false"
         }, [
           vue.withDirectives(vue.createElementVNode("div", _hoisted_1, null, 512), [
             [vue.vShow, isDragging.value]
@@ -8799,58 +9182,32 @@
                 class: "card-header",
                 onMousedown: startDrag
               }, [
-                vue.createElementVNode("div", _hoisted_2, [
-                  vue.createElementVNode("span", null, vue.toDisplayString(currentPlatformName.value), 1),
-                  vue.createVNode(_component_el_tooltip, {
-                    effect: "dark",
-                    placement: "top-start",
-                    content: "拖动标题可以移动面板。答题前请先保存模型服务。",
-                    teleported: false
-                  }, {
-                    default: vue.withCtx(() => [
-                      vue.createVNode(_component_el_icon, {
-                        class: "warning-icon",
-                        size: "small"
-                      }, {
-                        default: vue.withCtx(() => [
-                          vue.createVNode(vue.unref(warning_default))
-                        ]),
-                        _: 1
-                      })
-                    ]),
-                    _: 1
-                  })
+                vue.createElementVNode("div", { class: "title ai-brand", title: "拖动标题移动面板" }, [
+                  vue.createElementVNode("span", { class: "ai-brand-mark", "aria-hidden": "true" }, [
+                    vue.createElementVNode("svg", { viewBox: "0 0 24 24", width: "22", height: "22", fill: "none" }, [
+                      vue.createElementVNode("path", { d: "M4 5.5C7 4.6 9.6 5.1 12 6.7C14.4 5.1 17 4.6 20 5.5V18C17 17.1 14.4 17.6 12 19.2C9.6 17.6 7 17.1 4 18V5.5Z", stroke: "currentColor", "stroke-width": "1.6", "stroke-linejoin": "round" }),
+                      vue.createElementVNode("path", { d: "M12 7V19", stroke: "currentColor", "stroke-width": "1.6", "stroke-linecap": "round" })
+                    ])
+                  ]),
+                  vue.createElementVNode("span", { class: "ai-brand-copy" }, [
+                    vue.createElementVNode("span", { class: "ai-brand-name" }, "AI 学习助手"),
+                    vue.createElementVNode("span", { class: "ai-brand-platform" }, String(currentPlatformName.value || "课程学习").replace(/\s*[·•]\s*AI 学习助手.*$/, ""))
+                  ])
                 ]),
                 vue.createVNode(_sfc_main$2, {
                   onToggleZoom: _cache[0] || (_cache[0] = ($event) => vue.unref(configStore).isMinus = $event)
                 })
-              ], 32)
+              ])
             ]),
             default: vue.withCtx(() => [
-              vue.withDirectives(vue.createVNode(_sfc_main$3, { onCustomEvent: handleVisibleChange }, null, 512), [
-                [vue.vShow, !vue.unref(configStore).isMinus]
-              ]),
-              vue.withDirectives(vue.createElementVNode("div", _hoisted_3, [
-                vue.createVNode(_component_el_text, {
-                  type: "info",
-                  size: "small"
-                }, {
-                  default: vue.withCtx(() => [
-                    vue.createTextVNode("已最小化，点击上方按钮恢复")
-                  ]),
-                  _: 1
-                }),
-                vue.createVNode(_component_el_divider, {
-                  class: "compact-divider",
-                  "border-style": "dashed"
-                })
-              ], 512), [
-                [vue.vShow, vue.unref(configStore).isMinus]
-              ])
+              vue.withDirectives(vue.createElementVNode("div", {
+                class: "ai-panel-content", "aria-hidden": configStore.isMinus ? "true" : "false", inert: configStore.isMinus || undefined
+              }, [vue.createVNode(_sfc_main$3, { onCustomEvent: handleVisibleChange })]), [[vue.vShow, !configStore.isMinus]]),
+              vue.withDirectives(vue.createElementVNode("p", { class: "ai-minimized-note" }, "已收起，学习任务继续运行"), [[vue.vShow, configStore.isMinus]])
             ]),
             _: 1
           })
-        ], 4)), [
+        ]), [
           [vue.vShow, isShow.value]
         ]);
       };
@@ -8879,7 +9236,7 @@
     return GM_addStyle(t), t;
   };
   cssLoader("ElementPlus");
-  const layoutCss = ".main-page {\n  --ink: #1a2421;\n  --muted: #5e6d66;\n  --paper: #f6f8f7;\n  --sheet: #ffffff;\n  --rule: #d5ded8;\n  --pine: #1a2421;\n  --clay: #9d3d32;\n  --brass: #8d5e16;\n  --el-color-primary: #1a2421;\n  --el-color-primary-light-3: #5c675f;\n  --el-color-primary-light-5: #8d9992;\n  --el-color-primary-light-7: #c5cec9;\n  --el-color-primary-light-8: #dde3df;\n  --el-color-primary-light-9: #f3f5f4;\n  --el-color-primary-dark-2: #101614;\n  --el-color-success: #1a2421;\n  --el-color-warning: #8d5e16;\n  --el-color-danger: #9d3d32;\n  --el-color-error: #9d3d32;\n  --el-color-info: #5e6d66;\n  --el-border-color: #d5ded8;\n  --el-border-color-light: #e3ebe6;\n  --el-border-color-lighter: #eef3f0;\n  --el-text-color-primary: #1a2421;\n  --el-text-color-regular: #24312c;\n  --el-text-color-secondary: #5e6d66;\n  --el-text-color-placeholder: #8a9891;\n  --el-fill-color-blank: #ffffff;\n  --el-bg-color: #f6f8f7;\n  --el-bg-color-overlay: #ffffff;\n  --el-border-radius-base: 8px;\n  --el-font-family: \"DengXian\", \"等线\", \"PingFang SC\", \"Microsoft YaHei UI\", sans-serif;\n  --app-font-family: var(--el-font-family);\n  box-sizing: border-box;\n  width: min(360px, calc(100vw - 16px));\n  z-index: 100003;\n  position: fixed;\n  color: var(--ink);\n  background: transparent;\n  font-family: var(--el-font-family);\n  font-size: 13px;\n  line-height: 1.5;\n  -webkit-font-smoothing: antialiased;\n  text-rendering: optimizeLegibility;\n}\n.main-page *,\n.main-page input,\n.main-page button,\n.main-page textarea,\n.main-page select {\n  font-family: var(--el-font-family);\n  letter-spacing: 0;\n}\n.main-page .el-card,\n.main-page .el-tabs,\n.main-page .el-text,\n.main-page .el-button,\n.main-page .el-input,\n.main-page .el-input__inner,\n.main-page .el-input-number,\n.main-page .el-checkbox {\n  font-family: var(--el-font-family);\n}\n.main-page .el-card {\n  position: relative;\n  isolation: isolate;\n  width: 100%;\n  border: 1px solid rgba(255, 255, 255, 0.62);\n  border-radius: 22px;\n  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08) 48%, rgba(255, 255, 255, 0.16));\n  box-shadow:\n    0 16px 40px rgba(18, 32, 28, 0.14),\n    inset 0 1px 0 rgba(255, 255, 255, 0.72);\n  -webkit-backdrop-filter: blur(8px) saturate(1.4);\n  backdrop-filter: blur(8px) saturate(1.4);\n  overflow: hidden;\n  color: var(--ink);\n}\n.main-page .el-card::after {\n  content: \"\";\n  position: absolute;\n  inset: 0;\n  z-index: 3;\n  border-radius: inherit;\n  pointer-events: none;\n  box-shadow:\n    inset 0 1px 0 rgba(255, 255, 255, 0.85),\n    inset 0 0 0 1px rgba(255, 255, 255, 0.28);\n}\n.main-page .el-card__header,\n.main-page .el-card__body {\n  position: relative;\n  z-index: 1;\n}\n.main-page .el-card__header {\n  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.04));\n  color: var(--ink);\n  border-bottom: 1px solid rgba(255, 255, 255, 0.38);\n  padding: 8px 10px 8px 12px;\n  margin: 0;\n}\n.main-page .el-card__body {\n  padding: 0 14px 14px;\n  max-height: calc(100dvh - 92px);\n  overflow: auto;\n  background: transparent;\n  scrollbar-width: thin;\n  scrollbar-color: #c5d2cb transparent;\n}\n@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {\n  .main-page .el-card {\n    background: rgba(246, 248, 247, 0.96);\n  }\n}\n.main-page .card-header {\n  display: flex;\n  justify-content: space-between;\n  align-items: center;\n  margin: 0;\n  padding: 0;\n  cursor: move;\n}\n.main-page .card-header .title {\n  display: flex;\n  align-items: center;\n  gap: 4px;\n  min-width: 0;\n  font-size: 14px;\n  font-weight: 600;\n  line-height: 1.4;\n}\n.main-page .card-header .title > span {\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n.main-page .warning-icon {\n  margin-left: 2px;\n  color: var(--brass);\n  cursor: help;\n}\n.main-page .zoom-icon {\n  cursor: pointer;\n  color: var(--muted);\n  padding: 4px;\n}\n.main-page .zoom-icon.is-spaced { margin-left: 2px; }\n.main-page .overlay {\n  position: fixed;\n  inset: 0;\n  z-index: 1001;\n  background: transparent;\n}\n.main-page .minus { margin: 4px 0 0; color: var(--muted); }\n.main-page .compact-divider { margin: 6px 0 0; }\n.main-page .card_content { width: 100%; }\n.main-page .demo-tabs { display: block; }\n.main-page .el-tabs__header { margin: 0 0 10px; }\n.main-page .el-tabs__nav-wrap:after { height: 1px; background-color: rgba(255, 255, 255, 0.42); }\n.main-page .el-tabs__active-bar { background-color: var(--pine); height: 2px; }\n.main-page .el-tabs__item {\n  height: 36px;\n  font-size: 13px;\n  font-weight: 400;\n  color: var(--muted);\n  padding: 0 10px;\n}\n.main-page .el-tabs__item.is-top { padding: 0 10px; }\n.main-page .el-tabs__item.is-active {\n  font-weight: 600;\n  color: var(--ink);\n}\n.main-page .el-tabs__item:focus-visible {\n  outline: 2px solid var(--pine);\n  outline-offset: -2px;\n  border-radius: 4px;\n}\n.main-page .ai-config {\n  display: grid;\n  gap: 10px;\n  margin: 2px 0 12px;\n}\n.main-page .ai-field { display: grid; gap: 4px; min-width: 0; }\n.main-page .ai-label {\n  color: var(--ink);\n  font-size: 12px;\n  font-weight: 600;\n  line-height: 1.4;\n}\n.main-page .ai-note {\n  margin: 0;\n  color: var(--muted);\n  font-size: 12px;\n  line-height: 1.55;\n}\n.main-page .ai-metrics {\n  display: grid;\n  grid-template-columns: 1fr 1fr;\n  gap: 10px;\n}\n.main-page .ai-provider-select {\n  width: 100%;\n  box-sizing: border-box;\n  height: 32px;\n  border: 1px solid var(--rule);\n  border-radius: 8px;\n  padding: 0 8px;\n  background: rgba(255, 255, 255, 0.78);\n  color: var(--ink);\n  font-size: 13px;\n}\n.main-page .ai-provider-select:focus-visible {\n  outline: 2px solid var(--pine);\n  outline-offset: 1px;\n}\n.main-page .el-input__wrapper,\n.main-page .el-textarea__inner {\n  background: rgba(255, 255, 255, 0.82);\n  border: 1px solid rgba(255, 255, 255, 0.7);\n  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);\n}\n.main-page .el-input__wrapper.is-focus,\n.main-page .el-textarea__inner:focus {\n  border-color: var(--pine);\n  box-shadow: none;\n}\n.main-page .ai-metrics .el-input-number { width: 100%; }\n.main-page .ai-save.el-button {\n  justify-self: start;\n  height: 32px;\n  margin-top: 2px;\n  padding: 0 14px;\n  border-radius: 8px;\n}\n.main-page .question-sheet { margin-top: 4px; }\n.main-page .answer-legend {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 4px 12px;\n  margin: 0 0 2px;\n  padding: 0;\n  color: var(--muted);\n  font-size: 11px;\n  line-height: 1.4;\n}\n.main-page .answer-legend > span {\n  display: inline-flex;\n  align-items: center;\n  gap: 5px;\n}\n.main-page .answer-legend > span:before {\n  content: \"\";\n  width: 6px;\n  height: 6px;\n  border-radius: 50%;\n  background: currentColor;\n}\n.main-page .question-slips {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n}\n.main-page .question-slip {\n  display: grid;\n  grid-template-columns: 18px minmax(0, 1fr);\n  gap: 8px;\n  padding: 9px 0 9px 8px;\n  border-top: 1px solid var(--rule);\n  border-left: 2px solid var(--rule);\n}\n.main-page .question-slip--success { border-left-color: var(--pine); }\n.main-page .question-slip--searching { border-left-color: var(--brass); }\n.main-page .question-slip--pending { border-left-color: var(--muted); }\n.main-page .question-slip--error { border-left-color: var(--clay); }\n.main-page .question-index {\n  color: var(--muted);\n  font-size: 12px;\n  font-variant-numeric: tabular-nums;\n  line-height: 1.5;\n}\n.main-page .question-stem {\n  display: block;\n  color: var(--ink);\n  font-size: 13px;\n  line-height: 1.5;\n  overflow-wrap: anywhere;\n}\n.main-page .answer-result {\n  margin-top: 4px;\n  font-size: 12px;\n  line-height: 1.55;\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n.main-page .answer-result--success { color: var(--pine); }\n.main-page .answer-result--searching { color: var(--brass); }\n.main-page .answer-result--pending { color: var(--muted); }\n.main-page .answer-result--error { color: var(--clay); }\n.main-page .question-empty {\n  margin: 8px 0 4px;\n  color: var(--muted);\n  font-size: 13px;\n}\n.main-page .setting { margin-top: 2px; font-size: 13px; }\n.main-page .setting .el-divider {\n  height: auto;\n  margin: 14px 0 6px;\n  border: 0;\n  background: transparent;\n}\n.main-page .setting .el-divider__text {\n  position: static;\n  transform: none;\n  padding: 0;\n  background: transparent;\n  color: var(--ink);\n  font-size: 12px;\n  font-weight: 600;\n}\n.main-page .setting-section-title { font-size: 12px; font-weight: 600; }\n.main-page .setting .el-checkbox {\n  display: flex;\n  width: 100%;\n  height: auto;\n  margin: 0 0 8px;\n  align-items: flex-start;\n  white-space: normal;\n}\n.main-page .setting .el-checkbox__label {\n  white-space: normal;\n  line-height: 1.45;\n  color: var(--ink);\n}\n.main-page .setting .el-form-item {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-start;\n  margin: 0 0 10px;\n}\n.main-page .setting .el-form-item__label {\n  height: auto;\n  justify-content: flex-start;\n  margin-bottom: 4px;\n  padding: 0;\n  color: var(--ink);\n  font-size: 12px;\n  line-height: 1.4;\n  white-space: normal;\n}\n.main-page .setting .el-input-number { width: 128px; }\n.main-page .script-home { padding-top: 2px; }\n.main-page .log .el-scrollbar__view > div {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 2px 8px;\n  padding: 7px 0;\n  border-bottom: 1px solid var(--rule);\n}\n.main-page .log-time {\n  color: var(--muted);\n  font-weight: 400;\n  font-variant-numeric: tabular-nums;\n}\n.main-page .log .el-text {\n  font-weight: 400;\n  line-height: 1.45;\n  white-space: normal;\n}\n.main-page .log-divider { display: none; }\n.main-page .log-action-link { color: var(--pine); cursor: pointer; text-decoration: none; }\n.main-page .announcement-board {\n  box-sizing: border-box;\n  margin: 0 0 10px;\n  padding: 8px 10px;\n  border: 1px solid var(--rule);\n  border-left: 2px solid var(--pine);\n  border-radius: 0;\n  background: var(--sheet);\n}\n.main-page .announcement-heading {\n  display: flex;\n  align-items: center;\n  margin-bottom: 4px;\n  color: var(--ink);\n  font-size: 12px;\n  font-weight: 600;\n  line-height: 1.4;\n}\n.main-page .announcement-list { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; }\n.main-page .announcement-item { color: var(--ink); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }\n.main-page .guide-page {\n  box-sizing: border-box;\n  max-height: min(520px, calc(100dvh - 170px));\n  overflow: auto;\n  padding: 2px 2px 8px 0;\n  color: var(--ink);\n  font-size: 13px;\n  line-height: 1.6;\n  scrollbar-width: thin;\n  scrollbar-color: #c5d2cb transparent;\n}\n.main-page .guide-page:focus-visible {\n  outline: 2px solid var(--pine);\n  outline-offset: 2px;\n}\n.main-page .guide-header {\n  margin: 0 0 12px;\n  padding: 0 0 10px;\n  border: 0;\n  border-bottom: 1px solid var(--rule);\n  border-radius: 0;\n  background: transparent;\n}\n.main-page .guide-heading-row {\n  display: flex;\n  align-items: baseline;\n  justify-content: space-between;\n  gap: 8px;\n}\n.main-page .guide-title {\n  margin: 0;\n  color: var(--ink);\n  font-size: 15px;\n  font-weight: 600;\n  line-height: 1.4;\n}\n.main-page .guide-tag { color: var(--muted); font-size: 12px; }\n.main-page .guide-subtitle { margin: 4px 0 0; color: var(--muted); font-size: 12px; }\n.main-page .guide-list {\n  display: grid;\n  gap: 14px;\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n.main-page .guide-card {\n  min-width: 0;\n  padding: 0;\n  border: 0;\n  border-radius: 0;\n  background: transparent;\n}\n.main-page .guide-card-heading {\n  display: flex;\n  align-items: baseline;\n  gap: 8px;\n  margin-bottom: 2px;\n}\n.main-page .guide-number {\n  display: inline;\n  width: auto;\n  height: auto;\n  padding: 0;\n  border-radius: 0;\n  background: transparent;\n  color: var(--pine);\n  font-size: 12px;\n  font-weight: 600;\n  font-variant-numeric: tabular-nums;\n  line-height: 1.5;\n}\n.main-page .guide-card-title {\n  margin: 0 0 2px;\n  color: var(--ink);\n  font-size: 13px;\n  font-weight: 600;\n  line-height: 1.5;\n}\n.main-page .guide-copy { margin: 0; color: #24312c; overflow-wrap: anywhere; }";
+  const layoutCss = ".main-page {\n  --ink: #1a2421;\n  --muted: #5e6d66;\n  --paper: #f6f8f7;\n  --sheet: #ffffff;\n  --rule: #d5ded8;\n  --pine: #1a2421;\n  --clay: #9d3d32;\n  --brass: #8d5e16;\n  --el-color-primary: #1a2421;\n  --el-color-primary-light-3: #5c675f;\n  --el-color-primary-light-5: #8d9992;\n  --el-color-primary-light-7: #c5cec9;\n  --el-color-primary-light-8: #dde3df;\n  --el-color-primary-light-9: #f3f5f4;\n  --el-color-primary-dark-2: #101614;\n  --el-color-success: #1a2421;\n  --el-color-warning: #8d5e16;\n  --el-color-danger: #9d3d32;\n  --el-color-error: #9d3d32;\n  --el-color-info: #5e6d66;\n  --el-border-color: #d5ded8;\n  --el-border-color-light: #e3ebe6;\n  --el-border-color-lighter: #eef3f0;\n  --el-text-color-primary: #1a2421;\n  --el-text-color-regular: #24312c;\n  --el-text-color-secondary: #5e6d66;\n  --el-text-color-placeholder: #8a9891;\n  --el-fill-color-blank: #ffffff;\n  --el-bg-color: #f6f8f7;\n  --el-bg-color-overlay: #ffffff;\n  --el-border-radius-base: 8px;\n  --el-font-family: \"DengXian\", \"等线\", \"PingFang SC\", \"Microsoft YaHei UI\", sans-serif;\n  --app-font-family: var(--el-font-family);\n  box-sizing: border-box;\n  width: min(396px, calc(100vw - 16px));\n  z-index: 100003;\n  position: fixed;\n  color: var(--ink);\n  background: transparent;\n  font-family: var(--el-font-family);\n  font-size: 13px;\n  line-height: 1.5;\n  -webkit-font-smoothing: antialiased;\n  text-rendering: optimizeLegibility;\n}\n.main-page *,\n.main-page input,\n.main-page button,\n.main-page textarea,\n.main-page select {\n  font-family: var(--el-font-family);\n  letter-spacing: 0;\n}\n.main-page .el-card,\n.main-page .el-tabs,\n.main-page .el-text,\n.main-page .el-button,\n.main-page .el-input,\n.main-page .el-input__inner,\n.main-page .el-input-number,\n.main-page .el-checkbox {\n  font-family: var(--el-font-family);\n}\n.main-page .el-card {\n  position: relative;\n  isolation: isolate;\n  width: 100%;\n  border: 1px solid rgba(255, 255, 255, 0.62);\n  border-radius: 22px;\n  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08) 48%, rgba(255, 255, 255, 0.16));\n  box-shadow:\n    0 16px 40px rgba(18, 32, 28, 0.14),\n    inset 0 1px 0 rgba(255, 255, 255, 0.72);\n  -webkit-backdrop-filter: blur(8px) saturate(1.4);\n  backdrop-filter: blur(8px) saturate(1.4);\n  overflow: hidden;\n  color: var(--ink);\n}\n.main-page .el-card::after {\n  content: \"\";\n  position: absolute;\n  inset: 0;\n  z-index: 3;\n  border-radius: inherit;\n  pointer-events: none;\n  box-shadow:\n    inset 0 1px 0 rgba(255, 255, 255, 0.85),\n    inset 0 0 0 1px rgba(255, 255, 255, 0.28);\n}\n.main-page .el-card__header,\n.main-page .el-card__body {\n  position: relative;\n  z-index: 1;\n}\n.main-page .el-card__header {\n  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.04));\n  color: var(--ink);\n  border-bottom: 1px solid rgba(255, 255, 255, 0.38);\n  padding: 8px 10px 8px 12px;\n  margin: 0;\n}\n.main-page .el-card__body {\n  padding: 0 14px 14px;\n  max-height: calc(100dvh - 92px);\n  overflow: auto;\n  background: transparent;\n  scrollbar-width: thin;\n  scrollbar-color: #c5d2cb transparent;\n}\n@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {\n  .main-page .el-card {\n    background: rgba(246, 248, 247, 0.96);\n  }\n}\n.main-page .card-header {\n  display: flex;\n  justify-content: space-between;\n  align-items: center;\n  margin: 0;\n  padding: 0;\n  cursor: move;\n}\n.main-page .card-header .title {\n  display: flex;\n  align-items: center;\n  gap: 4px;\n  min-width: 0;\n  font-size: 14px;\n  font-weight: 600;\n  line-height: 1.4;\n}\n.main-page .card-header .title > span {\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n.main-page .warning-icon {\n  margin-left: 2px;\n  color: var(--brass);\n  cursor: help;\n}\n.main-page .zoom-icon {\n  cursor: pointer;\n  color: var(--muted);\n  padding: 4px;\n}\n.main-page .zoom-icon.is-spaced { margin-left: 2px; }\n.main-page .overlay {\n  position: fixed;\n  inset: 0;\n  z-index: 1001;\n  background: transparent;\n}\n.main-page .minus { margin: 4px 0 0; color: var(--muted); }\n.main-page .compact-divider { margin: 6px 0 0; }\n.main-page .card_content { width: 100%; }\n.main-page .demo-tabs { display: block; }\n.main-page .el-tabs__header { margin: 0 0 10px; }\n.main-page .el-tabs__nav-wrap:after { height: 1px; background-color: rgba(255, 255, 255, 0.42); }\n.main-page .el-tabs__active-bar { background-color: var(--pine); height: 2px; }\n.main-page .el-tabs__item {\n  height: 36px;\n  font-size: 13px;\n  font-weight: 400;\n  color: var(--muted);\n  padding: 0 10px;\n}\n.main-page .el-tabs__item.is-top { padding: 0 10px; }\n.main-page .el-tabs__item.is-active {\n  font-weight: 600;\n  color: var(--ink);\n}\n.main-page .el-tabs__item:focus-visible {\n  outline: 2px solid var(--pine);\n  outline-offset: -2px;\n  border-radius: 4px;\n}\n.main-page .ai-config {\n  display: grid;\n  gap: 10px;\n  margin: 2px 0 12px;\n}\n.main-page .ai-field { display: grid; gap: 4px; min-width: 0; }\n.main-page .ai-label {\n  color: var(--ink);\n  font-size: 12px;\n  font-weight: 600;\n  line-height: 1.4;\n}\n.main-page .ai-note {\n  margin: 0;\n  color: var(--muted);\n  font-size: 12px;\n  line-height: 1.55;\n}\n.main-page .ai-metrics {\n  display: grid;\n  grid-template-columns: 1fr 1fr;\n  gap: 10px;\n}\n.main-page .ai-provider-select {\n  width: 100%;\n  box-sizing: border-box;\n  height: 32px;\n  border: 1px solid var(--rule);\n  border-radius: 8px;\n  padding: 0 8px;\n  background: rgba(255, 255, 255, 0.78);\n  color: var(--ink);\n  font-size: 13px;\n}\n.main-page .ai-provider-select:focus-visible {\n  outline: 2px solid var(--pine);\n  outline-offset: 1px;\n}\n.main-page .el-input__wrapper,\n.main-page .el-textarea__inner {\n  background: rgba(255, 255, 255, 0.82);\n  border: 1px solid rgba(255, 255, 255, 0.7);\n  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);\n}\n.main-page .el-input__wrapper.is-focus,\n.main-page .el-textarea__inner:focus {\n  border-color: var(--pine);\n  box-shadow: none;\n}\n.main-page .ai-metrics .el-input-number { width: 100%; }\n.main-page .ai-save.el-button {\n  justify-self: start;\n  height: 32px;\n  margin-top: 2px;\n  padding: 0 14px;\n  border-radius: 8px;\n}\n.main-page .question-sheet { margin-top: 4px; }\n.main-page .answer-legend {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 4px 12px;\n  margin: 0 0 2px;\n  padding: 0;\n  color: var(--muted);\n  font-size: 11px;\n  line-height: 1.4;\n}\n.main-page .answer-legend > span {\n  display: inline-flex;\n  align-items: center;\n  gap: 5px;\n}\n.main-page .answer-legend > span:before {\n  content: \"\";\n  width: 6px;\n  height: 6px;\n  border-radius: 50%;\n  background: currentColor;\n}\n.main-page .question-slips {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n}\n.main-page .question-slip {\n  display: grid;\n  grid-template-columns: 18px minmax(0, 1fr);\n  gap: 8px;\n  padding: 9px 0 9px 8px;\n  border-top: 1px solid var(--rule);\n  border-left: 2px solid var(--rule);\n}\n.main-page .question-slip--success { border-left-color: var(--pine); }\n.main-page .question-slip--searching { border-left-color: var(--brass); }\n.main-page .question-slip--pending { border-left-color: var(--muted); }\n.main-page .question-slip--error { border-left-color: var(--clay); }\n.main-page .question-index {\n  color: var(--muted);\n  font-size: 12px;\n  font-variant-numeric: tabular-nums;\n  line-height: 1.5;\n}\n.main-page .question-stem {\n  display: block;\n  color: var(--ink);\n  font-size: 13px;\n  line-height: 1.5;\n  overflow-wrap: anywhere;\n}\n.main-page .answer-result {\n  margin-top: 4px;\n  font-size: 12px;\n  line-height: 1.55;\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n.main-page .answer-result--success { color: var(--pine); }\n.main-page .answer-result--searching { color: var(--brass); }\n.main-page .answer-result--pending { color: var(--muted); }\n.main-page .answer-result--error { color: var(--clay); }\n.main-page .question-empty {\n  margin: 8px 0 4px;\n  color: var(--muted);\n  font-size: 13px;\n}\n.main-page .setting { margin-top: 2px; font-size: 13px; }\n.main-page .setting .el-divider {\n  height: auto;\n  margin: 14px 0 6px;\n  border: 0;\n  background: transparent;\n}\n.main-page .setting .el-divider__text {\n  position: static;\n  transform: none;\n  padding: 0;\n  background: transparent;\n  color: var(--ink);\n  font-size: 12px;\n  font-weight: 600;\n}\n.main-page .setting-section-title { font-size: 12px; font-weight: 600; }\n.main-page .setting .el-checkbox {\n  display: flex;\n  width: 100%;\n  height: auto;\n  margin: 0 0 8px;\n  align-items: flex-start;\n  white-space: normal;\n}\n.main-page .setting .el-checkbox__label {\n  white-space: normal;\n  line-height: 1.45;\n  color: var(--ink);\n}\n.main-page .setting .el-form-item {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-start;\n  margin: 0 0 10px;\n}\n.main-page .setting .el-form-item__label {\n  height: auto;\n  justify-content: flex-start;\n  margin-bottom: 4px;\n  padding: 0;\n  color: var(--ink);\n  font-size: 12px;\n  line-height: 1.4;\n  white-space: normal;\n}\n.main-page .setting .el-input-number { width: 128px; }\n.main-page .script-home { padding-top: 2px; }\n.main-page .log .el-scrollbar__view > div {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 2px 8px;\n  padding: 7px 0;\n  border-bottom: 1px solid var(--rule);\n}\n.main-page .log-time {\n  color: var(--muted);\n  font-weight: 400;\n  font-variant-numeric: tabular-nums;\n}\n.main-page .log .el-text {\n  font-weight: 400;\n  line-height: 1.45;\n  white-space: normal;\n}\n.main-page .log-divider { display: none; }\n.main-page .log-action-link { color: var(--pine); cursor: pointer; text-decoration: none; }\n.main-page .announcement-board {\n  box-sizing: border-box;\n  margin: 0 0 10px;\n  padding: 8px 10px;\n  border: 1px solid var(--rule);\n  border-left: 2px solid var(--pine);\n  border-radius: 0;\n  background: var(--sheet);\n}\n.main-page .announcement-heading {\n  display: flex;\n  align-items: center;\n  margin-bottom: 4px;\n  color: var(--ink);\n  font-size: 12px;\n  font-weight: 600;\n  line-height: 1.4;\n}\n.main-page .announcement-list { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; }\n.main-page .announcement-item { color: var(--ink); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }\n.main-page .guide-page {\n  box-sizing: border-box;\n  max-height: min(520px, calc(100dvh - 170px));\n  overflow: auto;\n  padding: 2px 2px 8px 0;\n  color: var(--ink);\n  font-size: 13px;\n  line-height: 1.6;\n  scrollbar-width: thin;\n  scrollbar-color: #c5d2cb transparent;\n}\n.main-page .guide-page:focus-visible {\n  outline: 2px solid var(--pine);\n  outline-offset: 2px;\n}\n.main-page .guide-header {\n  margin: 0 0 12px;\n  padding: 0 0 10px;\n  border: 0;\n  border-bottom: 1px solid var(--rule);\n  border-radius: 0;\n  background: transparent;\n}\n.main-page .guide-heading-row {\n  display: flex;\n  align-items: baseline;\n  justify-content: space-between;\n  gap: 8px;\n}\n.main-page .guide-title {\n  margin: 0;\n  color: var(--ink);\n  font-size: 15px;\n  font-weight: 600;\n  line-height: 1.4;\n}\n.main-page .guide-tag { color: var(--muted); font-size: 12px; }\n.main-page .guide-subtitle { margin: 4px 0 0; color: var(--muted); font-size: 12px; }\n.main-page .guide-list {\n  display: grid;\n  gap: 14px;\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n.main-page .guide-card {\n  min-width: 0;\n  padding: 0;\n  border: 0;\n  border-radius: 0;\n  background: transparent;\n}\n.main-page .guide-card-heading {\n  display: flex;\n  align-items: baseline;\n  gap: 8px;\n  margin-bottom: 2px;\n}\n.main-page .guide-number {\n  display: inline;\n  width: auto;\n  height: auto;\n  padding: 0;\n  border-radius: 0;\n  background: transparent;\n  color: var(--pine);\n  font-size: 12px;\n  font-weight: 600;\n  font-variant-numeric: tabular-nums;\n  line-height: 1.5;\n}\n.main-page .guide-card-title {\n  margin: 0 0 2px;\n  color: var(--ink);\n  font-size: 13px;\n  font-weight: 600;\n  line-height: 1.5;\n}\n.main-page .guide-copy { margin: 0; color: #24312c; overflow-wrap: anywhere; }";
   const BOOTSTRAP_INTERVAL = 100;
   const COMPLETE_READY_STATE = "complete";
   const ELEMENT_PLUS_STYLE_RESOURCE = "ElementPlusStyle";
@@ -8888,12 +9245,188 @@
     hookWebpack();
     hookError();
   }
-  const aiModelConfigCss = `.main-page .el-card__body { box-sizing: border-box; max-height: max(0px, calc(100dvh - var(--ai-panel-top, 32px) - 44px)); }
-.main-page .ai-url-status { overflow-wrap: anywhere; word-break: break-word; }
-.main-page .ai-model-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
-.main-page .ai-model-row .ai-fetch-models { height: 32px; margin: 0; }
-.main-page .ai-model-status { overflow-wrap: anywhere; }
-.main-page .ai-model-error { color: var(--clay); }`;
+  const aiModelConfigCss = `/* A shared glass material across the shell, navigation and working surfaces. */
+.main-page {
+  --ink:#192338; --muted:#59667e; --pine:#465bea; --brass:#996426; --clay:#b44253;
+  --rule:rgba(99,116,155,.16); --sheet:rgba(255,255,255,.54);
+  --ai-success:#137c69; --ai-glass-border:rgba(255,255,255,.66); --ai-ease:cubic-bezier(.22,1,.36,1);
+  --el-color-primary:#465bea; --el-color-primary-light-3:#7686f0; --el-color-primary-light-5:#9eabf6;
+  --el-color-primary-light-9:#edf0ff; --el-color-primary-dark-2:#3547c5;
+  --el-color-success:#137c69; --el-color-warning:#996426; --el-color-danger:#b44253;
+  --el-text-color-primary:var(--ink); --el-text-color-regular:#384660; --el-text-color-secondary:var(--muted);
+  --el-font-family:"Segoe UI","Noto Sans SC","Microsoft YaHei UI","PingFang SC",sans-serif;
+  --app-font-family:var(--el-font-family);
+  --ai-body-space:max(0px,calc(100dvh - var(--ai-panel-top,32px) - 78px));
+  width:396px; max-width:calc(100vw - 16px); color:var(--ink); font-family:var(--el-font-family); -webkit-font-smoothing:antialiased;
+}
+.main-page *, .main-page *::before, .main-page *::after { box-sizing:border-box; }
+.main-page .el-card {
+  border:1px solid rgba(255,255,255,.78); border-radius:26px; color:var(--ink); overflow:hidden;
+  background:linear-gradient(145deg,rgba(250,252,255,.72),rgba(238,244,255,.56) 48%,rgba(246,249,255,.69));
+  -webkit-backdrop-filter:blur(26px) saturate(1.28); backdrop-filter:blur(26px) saturate(1.28);
+  box-shadow:0 22px 70px rgba(29,42,83,.19),0 3px 12px rgba(30,42,75,.07),inset 0 1px 0 rgba(255,255,255,.9);
+}
+.main-page .el-card::before {
+  content:""; position:absolute; inset:0; z-index:0; padding:2px; border-radius:inherit; pointer-events:none;
+  background:linear-gradient(125deg,rgba(255,255,255,.5),transparent 38%,rgba(213,228,255,.12) 68%,rgba(255,255,255,.32));
+  -webkit-backdrop-filter:var(--ai-glass-edge-filter,blur(3px)); backdrop-filter:var(--ai-glass-edge-filter,blur(3px));
+  -webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0); -webkit-mask-composite:xor;
+  mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0); mask-composite:exclude;
+}
+.main-page .el-card::after { box-shadow:inset 1px 1px 0 rgba(255,255,255,.88),inset -1px -1px 0 rgba(255,255,255,.38); }
+.main-page .el-card__header { padding:15px 16px 13px; border-bottom:0; background:transparent; color:var(--ink); }
+.main-page .card-header { min-height:36px; gap:12px; }
+.main-page .card-header .title { min-width:0; justify-content:flex-start; }
+.main-page .ai-brand { display:flex; align-items:center; gap:10px; min-width:0; }
+.main-page .ai-brand-mark { display:grid; place-items:center; flex:0 0 34px; width:34px; height:34px; border:1px solid rgba(255,255,255,.5); border-radius:11px; background:linear-gradient(150deg,rgba(117,137,255,.96),rgba(67,86,219,.94)); color:#fff; box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 3px 8px rgba(70,91,234,.15); }
+.main-page .ai-brand-mark svg { width:20px; height:20px; }
+.main-page .ai-brand-copy { display:grid; gap:2px; text-align:left; min-width:0; }
+.main-page .ai-brand-name { font-size:15px; line-height:1.35; font-weight:650; letter-spacing:-.3px; }
+.main-page .ai-brand-platform { color:var(--muted); font-size:10.5px; font-weight:400; line-height:1.4; }
+.main-page .warning-icon { margin-left:6px; }
+.main-page .ai-panel-toggle { display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; padding:0; border:1px solid rgba(255,255,255,.66); border-radius:50%; background:rgba(255,255,255,.33); color:#66728b; cursor:pointer; box-shadow:inset 0 1px 0 rgba(255,255,255,.68); transition:background-color 140ms,color 140ms,transform 140ms var(--ai-ease); }
+.main-page .ai-panel-toggle svg { width:14px; height:14px; pointer-events:none; }
+.main-page .el-card__body { max-height:var(--ai-body-space); padding:0 16px 16px; background:transparent; scroll-padding:12px; }
+.main-page .el-tabs__header { margin:0 0 18px; }
+.main-page .el-tabs__nav-wrap { padding:4px; border:1px solid var(--ai-glass-border); border-radius:14px; background:rgba(226,234,249,.28); }
+.main-page .el-tabs__nav-wrap:after { display:none; }
+.main-page .el-tabs__nav { display:flex; width:100%; }
+.main-page .el-tabs__item, .main-page .el-tabs__item.is-top, .main-page .el-tabs__item.is-active { position:relative; z-index:1; flex:1; height:32px; padding:0 8px; color:#59657e; font-size:12px; font-weight:500; transition:color 140ms; }
+.main-page .el-tabs__item.is-active { color:#364ad5; font-weight:650; }
+.main-page .el-tabs__active-bar { z-index:0; top:0; height:32px; border-radius:10px; background:rgba(255,255,255,.74); box-shadow:0 2px 7px rgba(49,67,112,.09),inset 0 1px 0 rgba(255,255,255,.9); transition:transform 220ms var(--ai-ease); }
+.main-page .el-tabs__content { overflow:visible; }
+.main-page .script-home { padding:0; }
+.main-page .ai-overview { margin:0 0 20px; padding:18px; border:1px solid var(--ai-glass-border); border-radius:19px; background:linear-gradient(135deg,rgba(255,255,255,.46),rgba(222,232,255,.33)); box-shadow:inset 0 1px 0 rgba(255,255,255,.68),0 3px 12px rgba(48,65,110,.025); }
+.main-page .ai-overview-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; color:var(--muted); font-size:11px; }
+.main-page .ai-status-badge { display:inline-flex; align-items:center; gap:5px; padding:4px 8px; border:1px solid rgba(255,255,255,.54); border-radius:99px; color:#4b5c83; background:rgba(255,255,255,.38); font-size:10px; font-weight:500; line-height:1.4; }
+.main-page .ai-status-badge::before { content:""; flex:0 0 5px; width:5px; height:5px; border-radius:50%; background:currentColor; }
+.main-page .ai-status-badge[data-state="complete"] { color:#08765f; background:rgba(218,248,237,.56); }
+.main-page .ai-status-badge[data-state="running"] { color:#3a50d2; background:rgba(229,234,255,.6); }
+.main-page .ai-status-badge[data-state="attention"] { color:#935b28; background:rgba(255,240,217,.65); }
+.main-page .ai-overview-title { margin:12px 0 7px; font-size:21px; line-height:1.45; font-weight:650; letter-spacing:-.6px; }
+.main-page .ai-overview-note { min-height:34px; margin:0; color:#52617e; font-size:12px; line-height:1.65; overflow-wrap:anywhere; }
+.main-page .ai-overview-metrics { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:17px; padding-top:15px; border-top:1px solid rgba(112,133,172,.16); }
+.main-page .ai-metric { display:grid; gap:5px; min-width:0; }
+.main-page .ai-metric + .ai-metric { padding-left:16px; border-left:1px solid rgba(112,133,172,.16); }
+.main-page .ai-metric > span { color:var(--muted); font-size:10.5px; }
+.main-page .ai-metric > strong { overflow:hidden; color:var(--ink); font-size:14px; font-weight:600; line-height:1.5; text-overflow:ellipsis; white-space:nowrap; }
+.main-page .ai-log-toolbar { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; }
+.main-page .ai-log-heading { display:flex; align-items:center; gap:7px; color:var(--ink); font-size:13px; font-weight:650; }
+.main-page .ai-log-count { padding:1px 6px; border-radius:6px; background:rgba(255,255,255,.38); color:var(--muted); font-size:10px; font-weight:400; }
+.main-page .ai-copy-logs { padding:6px 10px; border:1px solid var(--ai-glass-border); border-radius:9px; background:rgba(255,255,255,.48); color:#4559ca; font-size:11px; font-weight:500; cursor:pointer; }
+.main-page .ai-log-controls { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0 0 8px; }
+.main-page .ai-log-controls > span, .main-page .ai-log-hint { color:var(--muted); font-size:10px; line-height:1.5; }
+.main-page .ai-log-modes { display:inline-flex; padding:3px; gap:2px; border:1px solid rgba(255,255,255,.44); border-radius:9px; background:rgba(219,228,246,.25); }
+.main-page .ai-log-mode { padding:3px 9px; border:0; border-radius:6px; background:transparent; color:#64718a; font:inherit; font-size:10px; cursor:pointer; }
+.main-page .ai-log-mode[aria-pressed="true"] { background:rgba(255,255,255,.75); color:#3a4fbf; box-shadow:0 1px 3px rgba(40,57,95,.07); }
+.main-page .log { padding:0 11px; border:1px solid rgba(255,255,255,.59); border-radius:15px; background:rgba(255,255,255,.25); }
+.main-page .log .el-scrollbar__view > div.ai-log-entry { display:grid; grid-template-columns:47px 6px minmax(0,1fr); align-items:baseline; gap:8px; padding:11px 0; border-bottom:1px solid rgba(100,119,157,.1); }
+.main-page .log .el-scrollbar__view > div.ai-log-entry:last-child { border-bottom:0; }
+.main-page .log-time { color:#687690; font-size:10px; line-height:1.8; font-variant-numeric:tabular-nums; }
+.main-page .ai-log-dot { width:5px; height:5px; align-self:start; margin-top:6px; border-radius:50%; background:#8292ae; }
+.main-page .ai-log-entry[data-type="success"] .ai-log-dot { background:var(--ai-success); }
+.main-page .ai-log-entry[data-type="warning"] .ai-log-dot { background:#b9843f; }
+.main-page .ai-log-entry[data-type="danger"] .ai-log-dot { background:#c45c70; }
+.main-page .log .ai-log-message { color:#384964; font-size:11.5px; line-height:1.7; white-space:pre-wrap; overflow-wrap:anywhere; }
+.main-page .ai-log-copy-status { margin:0 0 8px; color:var(--ai-success); font-size:11px; line-height:1.5; overflow-wrap:anywhere; }
+.main-page .ai-log-copy-status:empty { display:none; }
+.main-page .ai-log-export { display:block; width:100%; max-height:160px; margin:0 0 10px; padding:10px; border:1px solid rgba(93,116,169,.24); border-radius:11px; background:var(--sheet); color:var(--ink); font-size:11px; line-height:1.5; resize:vertical; }
+.main-page .ai-log-empty { padding:24px 10px; color:var(--muted); text-align:center; font-size:12px; line-height:1.6; }
+.main-page .answer-pane { display:flex; flex-direction:column; min-height:0; height:min(690px,max(0px,calc(100dvh - var(--ai-panel-top,32px) - 162px))); }
+.main-page .question-sheet { flex:0 1 auto; min-height:0; max-height:min(180px,20dvh); overflow:auto; margin:0 0 12px; padding-right:4px; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:#a8b5d7 transparent; }
+.main-page .answer-legend { padding:0 0 8px; }
+.main-page .question-slip { padding:12px 0 12px 9px; border-top:0; border-bottom:1px solid var(--rule); }
+.main-page .question-stem { font-size:13px; line-height:1.7; }
+.main-page .answer-result { font-size:12px; line-height:1.65; }
+.main-page .answer-result--success { color:var(--ai-success); }
+.main-page .question-empty { flex:0 0 auto; margin:0 0 16px; padding:11px 13px; border:1px solid rgba(255,255,255,.7); border-radius:13px; background:rgba(234,239,255,.38); color:#526383; font-size:11px; line-height:1.65; }
+.main-page .ai-config { display:flex; flex:1 1 auto; flex-direction:column; min-height:0; gap:0; margin:0; overflow:hidden; }
+.main-page .ai-config-scroll { flex:1 1 auto; min-height:0; padding:2px 5px 18px 1px; overflow:auto; overscroll-behavior:contain; scroll-padding:12px; scrollbar-width:thin; scrollbar-color:rgba(101,122,169,.45) transparent; }
+.main-page .ai-config-section { display:grid; gap:13px; min-width:0; }
+.main-page .ai-config-section + .ai-config-section { margin-top:22px; padding-top:20px; border-top:1px solid var(--rule); }
+.main-page .ai-section-heading { display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom:1px; }
+.main-page .ai-section-heading h3 { margin:0; color:var(--ink); font-size:14px; font-weight:650; letter-spacing:-.2px; }
+.main-page .ai-section-heading > span { color:var(--muted); font-size:10px; }
+.main-page .ai-field { gap:7px; }
+.main-page .ai-label { color:#36445e; font-size:11.5px; font-weight:500; }
+.main-page .ai-note { color:var(--muted); font-size:10.5px; line-height:1.65; }
+.main-page .ai-model-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:end; }
+.main-page .ai-model-row .ai-fetch-models { height:38px; margin:0; padding:0 12px; }
+.main-page .ai-provider-select { height:38px; padding:0 11px; border:1px solid rgba(255,255,255,.78); border-radius:11px; background:rgba(255,255,255,.49); color:var(--ink); font-size:12px; box-shadow:inset 0 1px 0 rgba(255,255,255,.82),0 2px 5px rgba(35,55,101,.035); }
+.main-page .ai-config .el-input__wrapper, .main-page .ai-config .el-textarea__inner { background:rgba(255,255,255,.5); border:1px solid rgba(255,255,255,.8); border-radius:11px; box-shadow:inset 0 1px 0 rgba(255,255,255,.84),0 2px 5px rgba(35,55,101,.035); }
+.main-page .ai-config .el-input__wrapper { min-height:38px; padding:0 11px; }
+.main-page .ai-config .el-input__inner { height:36px; color:var(--ink); font-size:12px; }
+.main-page .ai-config .el-textarea__inner { min-height:61px; max-height:160px; padding:10px 11px; color:var(--ink); font-size:11.5px; line-height:1.65; overflow-wrap:anywhere; word-break:break-all; resize:vertical; }
+.main-page .ai-config .el-input__inner::placeholder, .main-page .ai-config .el-textarea__inner::placeholder { color:#73809a; font-size:11px; }
+.main-page .ai-config .el-input__wrapper.is-focus, .main-page .ai-config .el-textarea__inner:focus, .main-page .ai-provider-select:focus-visible { border-color:rgba(70,91,234,.65); box-shadow:0 0 0 3px rgba(70,91,234,.1),inset 0 1px 0 rgba(255,255,255,.8); }
+.main-page .ai-config .el-input.is-disabled .el-input__wrapper { background:rgba(223,231,246,.37); border-color:rgba(255,255,255,.38); }
+.main-page .ai-config .el-input-number { width:100%; }
+.main-page .ai-config .el-input-number__decrease, .main-page .ai-config .el-input-number__increase { background:rgba(222,231,250,.42); color:#596c97; border-color:rgba(255,255,255,.5); }
+.main-page .ai-config .el-input-number .el-input__wrapper { padding-left:5px; padding-right:29px; }
+.main-page .ai-config .el-input__password { color:#6d7b97; }
+.main-page .ai-url-status, .main-page .ai-model-status { overflow-wrap:anywhere; word-break:break-word; }
+.main-page .ai-model-status { padding:10px 12px; border:1px solid rgba(255,255,255,.6); border-radius:11px; background:rgba(230,237,255,.42); }
+.main-page .ai-model-error { color:#ac344b; }
+.main-page .ai-model-status.ai-model-error { background:rgba(255,233,234,.67); }
+.main-page .ai-config details { border-top:1px solid var(--rule); border-bottom:1px solid var(--rule); }
+.main-page .ai-config summary { display:flex; align-items:center; min-height:42px; gap:9px; padding:0 3px; color:#4d5d7c; font-size:11px; cursor:pointer; list-style:none; }
+.main-page .ai-config summary::-webkit-details-marker { display:none; }
+.main-page .ai-config summary::before { content:""; width:5px; height:5px; margin:0 3px; border:solid currentColor; border-width:0 1.5px 1.5px 0; transform:rotate(-45deg); transition:transform 160ms var(--ai-ease); }
+.main-page .ai-config details[open] > summary::before { transform:rotate(45deg); }
+.main-page .ai-detail-state { margin-left:auto; color:var(--muted); font-size:10px; }
+.main-page .ai-details-body { display:grid; gap:13px; min-width:0; padding:0 1px 14px; }
+.main-page .ai-reset-urls { justify-self:start; height:31px; margin:0; }
+.main-page .ai-concurrency-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:2px; }
+.main-page .ai-concurrency-heading .ai-note { margin-top:4px; }
+.main-page .ai-metrics { grid-template-columns:minmax(0,1fr) minmax(0,1fr); align-items:end; gap:12px; }
+.main-page .ai-concurrency-hint { padding-bottom:2px; white-space:pre-line; }
+.main-page .ai-savebar { flex:0 0 auto; display:grid; gap:8px; padding:13px 1px 1px; border-top:1px solid rgba(255,255,255,.68); background:transparent; }
+.main-page .ai-savebar .ai-save { width:100%; height:41px; margin:0; border:1px solid rgba(255,255,255,.55); border-radius:13px; background:linear-gradient(145deg,rgba(106,125,247,.94),rgba(69,87,222,.94)); color:#fff; font-size:12px; font-weight:600; box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 4px 10px rgba(66,86,209,.18); }
+.main-page .ai-fetch-models, .main-page .ai-reset-urls { border-color:rgba(255,255,255,.8); border-radius:11px; background:rgba(255,255,255,.45); color:#4358c5; font-size:11px; box-shadow:inset 0 1px 0 rgba(255,255,255,.78); }
+.main-page .setting { margin-top:2px; }
+.main-page .setting .el-divider { margin:20px 0 13px; }
+.main-page .setting .el-divider__text, .main-page .setting-section-title { font-size:13px; font-weight:650; }
+.main-page .setting .el-checkbox { margin-bottom:13px; }
+.main-page .setting .el-checkbox__label { color:#384964; font-size:12px; line-height:1.7; }
+.main-page .setting .el-checkbox__inner { border-radius:5px; border-color:rgba(105,125,168,.4); background:rgba(255,255,255,.46); }
+.main-page .setting .el-checkbox__input.is-checked .el-checkbox__inner { background:#586de6; border-color:#586de6; }
+.main-page .guide-page { font-size:12px; line-height:1.8; }
+.main-page .guide-title { font-size:17px; }
+.main-page .guide-number { color:#465bea; }
+.main-page button { touch-action:manipulation; }
+.main-page .ai-copy-logs, .main-page .ai-log-mode, .main-page .ai-fetch-models, .main-page .ai-reset-urls, .main-page .ai-save { transition:transform 150ms var(--ai-ease),background-color 150ms,color 150ms,opacity 150ms; }
+.main-page .ai-copy-logs:active, .main-page .ai-log-mode:active, .main-page .ai-panel-toggle:active, .main-page .ai-fetch-models:active, .main-page .ai-reset-urls:active, .main-page .ai-save:active { transform:scale(.975); transition-duration:0ms; }
+.main-page .ai-minimized-note { margin:0; padding:0 2px 2px; color:var(--muted); font-size:11px; }
+.main-page .ai-copy-logs:disabled { cursor:wait; opacity:.65; }
+.main-page button:focus-visible, .main-page summary:focus-visible, .main-page .ai-config-scroll:focus-visible, .main-page .question-sheet:focus-visible, .main-page .ai-log-export:focus-visible { outline:2px solid #465bea; outline-offset:3px; }
+@media (hover:hover) and (pointer:fine) {
+  .main-page .ai-panel-toggle:hover { background:rgba(255,255,255,.7); color:#465bea; }
+  .main-page .ai-copy-logs:hover, .main-page .ai-fetch-models:hover, .main-page .ai-reset-urls:hover { background:rgba(255,255,255,.74); }
+  .main-page .ai-savebar .ai-save:hover { opacity:.92; }
+  .main-page .ai-config summary:hover { color:#465bea; background:rgba(255,255,255,.18); }
+}
+@media (max-width:340px) {
+  .main-page .el-card__header { padding:13px 12px 11px; }
+  .main-page .el-card__body { padding-right:12px; padding-left:12px; }
+  .main-page .el-tabs__item, .main-page .el-tabs__item.is-top, .main-page .el-tabs__item.is-active { padding:0 5px; font-size:11px; }
+  .main-page .ai-overview { padding:15px; }
+  .main-page .ai-overview-title { font-size:19px; }
+  .main-page .ai-section-heading > span { font-size:9px; }
+  .main-page .ai-config-scroll { padding-right:4px; }
+  .main-page .log .el-scrollbar__view > div.ai-log-entry { grid-template-columns:43px 5px minmax(0,1fr); gap:6px; }
+}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
+  .main-page .el-card { background:#edf2fc; }
+  .main-page .el-card::before { display:none; }
+}
+@media (prefers-reduced-transparency:reduce) {
+  .main-page .el-card { background:#edf2fc; -webkit-backdrop-filter:none; backdrop-filter:none; }
+  .main-page .el-card::before { display:none; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .main-page .el-tabs__active-bar, .main-page .ai-config summary::before { transition:none; }
+  .main-page .ai-copy-logs:active, .main-page .ai-log-mode:active, .main-page .ai-panel-toggle:active, .main-page .ai-fetch-models:active, .main-page .ai-reset-urls:active, .main-page .ai-save:active { transform:none; }
+}`;
   const createStyleSheet = (cssText) => {
     const sheet = new CSSStyleSheet();
     sheet.replaceSync(cssText);
@@ -8915,6 +9448,7 @@
     const root = mountNode.getRootNode();
     const safariOnly = /Safari/.test(navigator.userAgent) && !/Chrome|Chromium|Edg/.test(navigator.userAgent);
     if (safariOnly || !CSS.supports("backdrop-filter", "url(#lg)") || !root || typeof root.appendChild !== "function") return;
+    if (window.matchMedia?.("(prefers-reduced-transparency: reduce)").matches) return;
     const svgNS = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(svgNS, "svg");
     svg.setAttribute("width", "0");
@@ -8971,6 +9505,7 @@
       canvas.width = width;
       canvas.height = height;
       const context = canvas.getContext("2d");
+      if (!context) throw new Error("Glass canvas unavailable");
       const horizontal = context.createLinearGradient(0, 0, width, 0);
       horizontal.addColorStop(0, "rgb(0,0,0)");
       horizontal.addColorStop(1, "rgb(255,0,0)");
@@ -8995,29 +9530,44 @@
     };
     let watched = null;
     let timer = 0;
+    let observer = null;
+    let lastSize = "";
     const apply = (card) => {
+      if (!card.isConnected) return;
       const width = Math.round(card.offsetWidth);
       const height = Math.round(card.offsetHeight);
       if (width < 40 || height < 40) return;
       const radius = parseFloat(getComputedStyle(card).borderTopLeftRadius) || 22;
-      feImage.setAttribute("href", makeMap(width, height, radius));
-      feImage.setAttribute("width", String(width));
-      feImage.setAttribute("height", String(height));
-      const value = "url(#course-helper-glass) blur(2px) saturate(1.5)";
-      card.style.webkitBackdropFilter = value;
-      card.style.backdropFilter = value;
+      const size = width + ":" + height + ":" + radius;
+      if (size === lastSize) return;
+      try {
+        feImage.setAttribute("href", makeMap(width, height, radius));
+        feImage.setAttribute("width", String(width));
+        feImage.setAttribute("height", String(height));
+        // Only the decorative rim refracts. The shell keeps its standard blur
+        // even when a browser accepts SVG filter syntax but cannot render it.
+        card.style.setProperty("--ai-glass-edge-filter", "url(#course-helper-glass) blur(2px) saturate(1.25)");
+        lastSize = size;
+      } catch (_) {
+        card.style.removeProperty("--ai-glass-edge-filter");
+      }
     };
     const watch = (card) => {
       if (watched === card) return;
+      observer?.disconnect();
+      clearTimeout(timer);
+      lastSize = "";
       watched = card;
       apply(card);
-      const observer = new ResizeObserver(() => {
+      if (typeof ResizeObserver !== "function") return;
+      observer = new ResizeObserver(() => {
         clearTimeout(timer);
         timer = setTimeout(() => apply(card), 80);
       });
       observer.observe(card);
     };
     const find = () => {
+      if (watched?.isConnected) return;
       const card = root.querySelector(".el-card");
       if (card) watch(card);
     };

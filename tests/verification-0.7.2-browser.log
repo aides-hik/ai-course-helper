@@ -1,0 +1,17 @@
+{
+  "realDom": true,
+  "offline": true,
+  "scenarios": [
+    "finished-sibling-icon-with-blank-helper-advances-once",
+    "unfinished-neighbor-blocks-navigation",
+    "unrelated-blank-container-still-blocks",
+    "finished-player-inaccessible-helper-ignored",
+    "finished-inaccessible-video-confirmed-by-parent",
+    "completion-revoked-during-delay-blocks-navigation",
+    "ambiguous-sibling-icons-rejected",
+    "normal-scanner-blank-helper-confirms-and-advances-once",
+    "normal-scanner-finished-loading-video-advances-once"
+  ],
+  "errors": [],
+  "passed": true
+}

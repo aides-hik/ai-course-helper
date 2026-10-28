@@ -28,6 +28,8 @@ function section(start, end) {
     chapterSnapshot: () => [],
     sameFrameSnapshot: () => true,
     logStore: { addLog() {} },
+    logChapterDiagnostics() {},
+    logChapterNavigation() {},
     document: { querySelector: () => ({ click() { clicks += 1; } }) },
     aiWaitForDelay: (_seconds, context) => new Promise((resolve) => { release = () => resolve(context.isCurrent()); })
   });

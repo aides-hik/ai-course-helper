@@ -2,7 +2,7 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "0.6.1"
+VERSION = "0.8.0"
 MODULES = {
     "CONFIG_STORAGE": "config-storage.js",
     "TEXT_EXTRACTORS": "text-extraction.js",
@@ -14,6 +14,7 @@ MODULES = {
     "CHAPTER": "chapter-logic.js",
     "EXAM": "exam-logic.js",
     "PAGE_HOOKS": "page-hooks.js",
+    "UI_STYLES": "ui-panel.css",
 }
 
 

@@ -34,7 +34,7 @@ function frame(src, options = {}) {
 function chapterHarness(options = {}) {
   const rootFrame = frame('https://course.test/root');
   const next = { style: { display: '' }, clicks: 0, click() { this.clicks += 1; } };
-  const pageRoot = { querySelectorAll: () => [rootFrame], querySelector: (selector) => selector === 'iframe' ? rootFrame : next };
+  const pageRoot = { querySelectorAll: (selector) => selector === 'iframe' ? [rootFrame] : [], querySelector: (selector) => selector === 'iframe' ? rootFrame : null };
   const logs = [];
   const timers = new Map();
   const cleanups = [];
@@ -46,7 +46,7 @@ function chapterHarness(options = {}) {
   const sandbox = {
     URL, AbortController,
     Date: { now: () => now },
-    document: { documentElement: pageRoot, querySelector: () => next },
+    document: { documentElement: pageRoot, querySelector: (selector) => selector.includes('nextChapter') ? next : pageRoot.querySelector(selector) },
     window: { location: { href: 'https://course.test/mycourse/studentstudy?mooc2=1' } },
     useLogStore: () => ({ addLog: (message) => logs.push(message) }),
     useQuestionStore: () => ({ clearQuestion() {} }),

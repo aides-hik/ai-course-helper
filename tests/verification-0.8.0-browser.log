@@ -1,0 +1,181 @@
+{
+  "fullArtifact": true,
+  "offline": true,
+  "viewports": [
+    {
+      "width": 1280,
+      "overview": {
+        "title": "本页任务已完成",
+        "state": "complete",
+        "panel": {
+          "x": 32,
+          "y": 80,
+          "width": 396,
+          "height": 545.21875,
+          "top": 80,
+          "right": 428,
+          "bottom": 625.21875,
+          "left": 32
+        },
+        "logRows": 2,
+        "logs": 7
+      },
+      "interactions": {
+        "filterToggle": true,
+        "fullRows": 7,
+        "copyIncludesHiddenRows": true
+      },
+      "settings": {
+        "save": {
+          "x": 50.000221252441406,
+          "y": 820.9375,
+          "width": 360,
+          "height": 41,
+          "top": 820.9375,
+          "right": 410.0002212524414,
+          "bottom": 861.9375,
+          "left": 50.000221252441406
+        },
+        "fixedAtScrollPositions": true,
+        "controlsFit": true,
+        "urlMultiline": true,
+        "outerScroll": 0
+      },
+      "motion": {
+        "animations": [
+          {
+            "duration": 160,
+            "keyframes": [
+              {
+                "transform": "translateY(-3px)",
+                "opacity": "0.78"
+              },
+              {
+                "transform": "none",
+                "opacity": "1"
+              }
+            ]
+          }
+        ]
+      },
+      "reduced": {
+        "matches": true,
+        "spatialAnimationSuppressed": true,
+        "animations": [
+          {
+            "duration": 100,
+            "keyframes": [
+              {
+                "transform": "none",
+                "opacity": "0.78"
+              },
+              {
+                "transform": "none",
+                "opacity": "1"
+              }
+            ]
+          }
+        ]
+      },
+      "rapidToggle": true,
+      "focusPreserved": true
+    },
+    {
+      "width": 320,
+      "overview": {
+        "title": "本页任务已完成",
+        "state": "complete",
+        "panel": {
+          "x": 8,
+          "y": 80,
+          "width": 304,
+          "height": 532.328125,
+          "top": 80,
+          "right": 312,
+          "bottom": 612.328125,
+          "left": 8
+        },
+        "logRows": 2,
+        "logs": 7
+      },
+      "interactions": {
+        "filterToggle": true,
+        "fullRows": 7,
+        "copyIncludesHiddenRows": true
+      },
+      "settings": {
+        "save": {
+          "x": 22,
+          "y": 816.9375,
+          "width": 276,
+          "height": 41,
+          "top": 816.9375,
+          "right": 298,
+          "bottom": 857.9375,
+          "left": 22
+        },
+        "fixedAtScrollPositions": true,
+        "controlsFit": true,
+        "urlMultiline": true,
+        "outerScroll": 0
+      },
+      "motion": {
+        "animations": [
+          {
+            "duration": 160,
+            "keyframes": [
+              {
+                "transform": "translateY(-3px)",
+                "opacity": "0.78"
+              },
+              {
+                "transform": "none",
+                "opacity": "1"
+              }
+            ]
+          }
+        ]
+      },
+      "reduced": {
+        "matches": true,
+        "spatialAnimationSuppressed": true,
+        "animations": [
+          {
+            "duration": 100,
+            "keyframes": [
+              {
+                "transform": "none",
+                "opacity": "0.78"
+              },
+              {
+                "transform": "none",
+                "opacity": "1"
+              }
+            ]
+          }
+        ]
+      },
+      "rapidToggle": true,
+      "focusPreserved": true
+    }
+  ],
+  "screenshots": [
+    "redesign-overview-desktop.png",
+    "redesign-settings-desktop.png",
+    "redesign-overview-320.png",
+    "redesign-settings-320.png"
+  ],
+  "errors": [],
+  "emptyStateHonest": true,
+  "requests": 0,
+  "passed": true,
+  "pressFeedback": {
+    "forcedPseudoState": "active",
+    "normalTransform": "matrix(0.975, 0, 0, 0.975, 0, 0)",
+    "reducedTransform": "none",
+    "reducedOverrideVerified": true,
+    "artifactSha256": "EC4E025A89FA249E6B16189340D0E60D5A195471B4C4615B9713F31359CC8FCE"
+  },
+  "targetedPressPassed": true,
+  "fullValidationPassed": true
+}

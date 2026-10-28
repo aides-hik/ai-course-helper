@@ -11,6 +11,9 @@ ROOT = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
 parser.add_argument('--width',type=int,default=1280)
 parser.add_argument('--screenshot',action='store_true')
+parser.add_argument('--preview',action='store_true',help='Capture the default settings screen after its UI checks')
+parser.add_argument('--glass-background',action='store_true',help='Render an offline course page behind the panel for glass readability review')
+parser.add_argument('--glass-fallback',action='store_true',help='Disable only SVG backdrop-filter support detection while retaining real standard blur')
 args = parser.parse_args()
 ARTIFACT = ROOT / "ai-course-helper.user.js"
 source = ARTIFACT.read_text(encoding="utf-8")
@@ -31,6 +34,10 @@ for name, _url in re.findall(r"^// @resource\s+(ElementPlus\S*)\s+(https://\S+)"
     resources[name] = cached.read_text(encoding="utf-8")
 
 setup = r'''
+if(window.__glassFallback){
+  const fixtureCssSupports=CSS.supports.bind(CSS);
+  CSS.supports=(...args)=>/backdrop-filter/i.test(args.join(' '))&&/url\s*\(/i.test(args.join(' '))?false:fixtureCssSupports(...args);
+}
 const fixturePrefix = window.__modelReviewPrefix;
 const fixtureRead = (name, fallback) => {
   const text=sessionStorage.getItem(fixturePrefix+name);
@@ -80,9 +87,16 @@ const fixtureWait=async(check,label)=>{
   for(let attempt=0;attempt<100;attempt++){if(check())return;await new Promise(resolve=>setTimeout(resolve,50));}
   throw Error('Timed out: '+label);
 };
+const fixtureReveal=async(element)=>{
+  for(let ancestor=element?.parentElement;ancestor;ancestor=ancestor.parentElement){
+    if(ancestor.matches('details')&&!ancestor.open){ancestor.querySelector(':scope > summary')?.click();await fixtureTick();}
+  }
+};
 const fixtureInput=async(element,value)=>{
   fixtureAssert(!!element,'Missing editable field');
-  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(element,value);
+  await fixtureReveal(element);
+  const prototype=element.matches('textarea')?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(prototype,'value').set.call(element,value);
   element.dispatchEvent(new Event('input',{bubbles:true}));await fixtureTick();
 };
 const fixtureSelect=async(element,value)=>{
@@ -112,7 +126,7 @@ setTimeout(async()=>{try{
   const key=()=>shadow.querySelector('input[type="password"]');
   const model=()=>shadow.querySelector('.ai-model-row input');
   const thought=()=>shadow.querySelector('.ai-reasoning-select');
-  const fieldInput=selector=>{const node=shadow.querySelector(selector);return node?.matches('input')?node:node?.querySelector('input');};
+  const fieldInput=selector=>{const node=shadow.querySelector(selector);return node?.matches('input,textarea')?node:node?.querySelector('input,textarea');};
   const requestUrl=()=>fieldInput('.ai-request-url');
   const modelsUrl=()=>fieldInput('.ai-models-url');
   const routeDefaults={openai:'https://api.openai.com/v1/responses',deepseek:'https://api.deepseek.com/chat/completions'};
@@ -128,6 +142,29 @@ setTimeout(async()=>{try{
   const noUnexpected=()=>fixtureAssert(window.__modelErrors.length===0,'Uncaught browser error: '+window.__modelErrors.join('; '));
   const chooseProvider=async value=>fixtureSelect(provider(),value);
   const stage=name=>fixtureResult.textContent=JSON.stringify({stage:name});
+  const glassReport=()=>{
+    if(!window.__glassBackground&&!window.__glassFallback)return undefined;
+    const card=shadow.querySelector('.el-card'),shell=getComputedStyle(card),edge=getComputedStyle(card,'::before');
+    fixtureAssert(/blur\(18px\)/.test(shell.backdropFilter),'Glass shell must preserve its standard blur');
+    if(window.__glassFallback){
+      fixtureAssert(!shadow.querySelector('#course-helper-glass'),'SVG-disabled fixture must not create its refraction filter');
+      fixtureAssert(!/url\(/.test(edge.backdropFilter)&&/blur\(/.test(edge.backdropFilter),'SVG fallback must retain the standard blurred rim');
+    }
+    return {background:!!window.__glassBackground,mode:window.__glassFallback?'standard-blur':'svg-allowed',shellFilter:shell.backdropFilter,edgeFilter:edge.backdropFilter,svgFilter:!!shadow.querySelector('#course-helper-glass'),urlFieldBackground:getComputedStyle(requestUrl()).backgroundColor};
+  };
+  const saveVisible=()=>{
+    const save=shadow.querySelector('.ai-save'),bounds=save?.getBoundingClientRect();
+    fixtureAssert(bounds&&bounds.width>0&&bounds.left>=0&&bounds.right<=innerWidth&&bounds.top>=0&&bounds.bottom<=innerHeight,'Save action must remain in viewport: '+JSON.stringify(bounds?.toJSON()));
+    const hit=shadow.elementFromPoint(bounds.left+bounds.width/2,bounds.top+bounds.height/2);
+    fixtureAssert(hit===save||save.contains(hit),'Save action must not be covered by scrolling content');
+    return bounds;
+  };
+  const checkSaveAtScrollPositions=async()=>{
+    const scroll=shadow.querySelector('.ai-config-scroll'),savebar=shadow.querySelector('.ai-savebar'),save=shadow.querySelector('.ai-save');
+    fixtureAssert(scroll&&savebar?.contains(save)&&!scroll.contains(save),'Save action must be outside the configuration scroll area');
+    for(const fraction of [0,0.5,1]){scroll.scrollTop=(scroll.scrollHeight-scroll.clientHeight)*fraction;await fixtureTick();saveVisible();}
+    scroll.scrollTop=0;await fixtureTick();
+  };
   const clickFetch=async()=>{
     const count=window.__modelCalls.length,writes=fixtureRead('writes',[]).length;fetchButton().click();await fixtureTick();
     fixtureAssert(fixtureRead('writes',[]).length===writes,'Fetch action must not save settings');
@@ -145,9 +182,12 @@ setTimeout(async()=>{try{
     fixtureAssert(provider().value==='deepseek'&&requestUrl().value===routes.deepseek&&modelsUrl().value===explicitRoutes.deepseek,'DeepSeek saved URLs must restore independently');
     await fixtureWait(()=>window.__modelPostCalls.length===1&&document.querySelectorAll('#fixture-endpoint-question input')[1]?.checked&&shadow.querySelector('.answer-result.answer-result--success'),'DeepSeek custom endpoint must answer and fill the real question');
     fixtureAssert(window.__modelCalls.length===0,'Saved endpoint must not cause a model GET');noUnexpected();
+    const resultSheet=shadow.querySelector('.question-sheet'),resultBounds=resultSheet.getBoundingClientRect();
+    fixtureAssert(resultBounds.height<=Math.min(180,innerHeight*0.2)+1&&resultSheet.tabIndex===0,'Answer results must stay bounded and keyboard scrollable');
+    await checkSaveAtScrollPositions();
     document.querySelector('#fixture-endpoint-question').remove();
     const previous=fixtureRead('report',{});
-    fixtureResult.textContent=JSON.stringify({...previous,customAnswerPosts:['openai','deepseek'],savedAndReloaded:true,savedFields:fixtureRead('writes',[]).length,passed:true});
+    fixtureResult.textContent=JSON.stringify({...previous,customAnswerPosts:['openai','deepseek'],savedAndReloaded:true,savedFields:fixtureRead('writes',[]).length,resultLayout:{resultHeight:resultBounds.height,configScrollHeight:shadow.querySelector('.ai-config-scroll').clientHeight,save:saveVisible().toJSON()},passed:true});
     return;
   }
   if(fixtureRead('phase','initial')==='saved'){
@@ -173,6 +213,40 @@ setTimeout(async()=>{try{
   }
   stage('defaults');
   fixtureAssert(!!fetchButton()&&!!thought(),'All new model settings controls must mount');
+  const panelToggle=shadow.querySelector('.ai-panel-toggle');
+  fixtureAssert(panelToggle?.matches('button[type="button"]')&&panelToggle.getAttribute('aria-expanded')==='true','Panel toggle must be a native expanded button');
+  const beforeToggleBounds=shadow.querySelector('.main-page').getBoundingClientRect();
+  panelToggle.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,clientX:beforeToggleBounds.right-20,clientY:beforeToggleBounds.top+15}));
+  document.dispatchEvent(new MouseEvent('mousemove',{bubbles:true,clientX:800,clientY:500}));
+  document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,clientX:800,clientY:500}));await fixtureTick();
+  const afterToggleBounds=shadow.querySelector('.main-page').getBoundingClientRect();
+  fixtureAssert(beforeToggleBounds.left===afterToggleBounds.left&&beforeToggleBounds.top===afterToggleBounds.top,'Panel toggle must not initiate header dragging');
+  panelToggle.focus();fixtureAssert(shadow.activeElement===panelToggle,'Panel toggle must accept keyboard focus');
+  panelToggle.click();await fixtureTick();
+  fixtureAssert(panelToggle.getAttribute('aria-expanded')==='false'&&/展开/.test(panelToggle.getAttribute('aria-label')),'Collapsing the panel must update its accessible state: '+JSON.stringify({expanded:panelToggle.getAttribute('aria-expanded'),label:panelToggle.getAttribute('aria-label'),rects:shadow.querySelector('.ai-config').getClientRects().length}));
+  fixtureAssert(shadow.querySelector('.ai-config').getClientRects().length===0,'Collapsing must hide the settings content');
+  panelToggle.click();await fixtureTick();
+  fixtureAssert(panelToggle.getAttribute('aria-expanded')==='true'&&/收起/.test(panelToggle.getAttribute('aria-label')),'Reopening must restore the full panel state');
+  fixtureAssert(window.__modelCalls.length===0,'Panel toggling must not request models');
+  fixtureAssert(requestUrl()?.matches('textarea')&&requestUrl().rows>=2&&!requestUrl().closest('details'),'Answer URL must be a multiline field outside collapsed sections');
+  const endpointDetails=shadow.querySelector('.ai-endpoint-details'),advancedDetails=shadow.querySelector('.ai-advanced-details');
+  fixtureAssert(endpointDetails?.matches('details')&&advancedDetails?.matches('details')&&!endpointDetails.open&&!advancedDetails.open,'Interface and advanced options must start collapsed');
+  const detailWrites=fixtureRead('writes',[]).length;
+  for(const details of [endpointDetails,advancedDetails]){
+    const summary=details.querySelector(':scope > summary');fixtureAssert(!!summary,'Collapsed settings need a native summary');
+    summary.focus();fixtureAssert(shadow.activeElement===summary,'Settings summary must accept keyboard focus');
+    summary.click();await fixtureTick();fixtureAssert(details.open,'Settings summary must reveal its fields');
+    summary.click();await fixtureTick();fixtureAssert(!details.open,'Settings summary must collapse its fields');
+  }
+  fixtureAssert(fixtureRead('writes',[]).length===detailWrites&&window.__modelCalls.length===0,'Disclosure changes must not save settings or fetch models');
+  for(const element of [provider(),key(),model(),requestUrl(),modelsUrl(),thought()]){
+    fixtureAssert(element?.labels?.length>0||!!element?.getAttribute('aria-label')?.trim(),'Editable settings need an accessible label: '+element?.className);
+  }
+  await checkSaveAtScrollPositions();
+  if(window.__uiPreview){
+    fixtureResult.textContent=JSON.stringify({passed:true,preview:true,defaultDisclosuresClosed:true,keyboardFocusablePanelToggle:true,multilineUrl:true,accessibleLabels:true,savePinnedAtAllScrollPositions:true,glass:glassReport(),viewport:[innerWidth,innerHeight],scrollHeight:shadow.querySelector('.ai-config-scroll').clientHeight,save:saveVisible().toJSON()});
+    return;
+  }
   fixtureAssert(requestUrl()?.value===routeDefaults.openai&&modelsUrl()?.value==='','Default OpenAI request URL must be visible and editable');
   fixtureAssert(text().includes('https://api.openai.com/v1/models'),'Actual default model-list URL must be visible');
   fixtureAssert(!!shadow.querySelector('.ai-reset-urls'),'Reset addresses control must be available');
@@ -302,6 +376,7 @@ setTimeout(async()=>{try{
 
   stage('reset-and-custom-model-list');
   const noCalls=window.__modelCalls.length;
+  await fixtureReveal(shadow.querySelector('.ai-reset-urls'));
   shadow.querySelector('.ai-reset-urls').click();await fixtureTick();
   fixtureAssert(requestUrl().value===routeDefaults.openai&&modelsUrl().value===''&&window.__modelCalls.length===noCalls,'Reset must restore current provider addresses without fetching');
   fixtureAssert(model().value==='openai-manual-final'&&thought().value==='high'&&key().value==='offline-openai-final','Reset addresses must preserve chosen model, effort and credential');
@@ -320,6 +395,16 @@ setTimeout(async()=>{try{
   fixtureAssert(window.__modelXss===0,'Model text must never execute HTML');
   noUnexpected();
   stage('layout');
+  const beforeLongUrlCalls=window.__modelCalls.length,beforeLongUrl=requestUrl().value;
+  const longUrl='https://openai-route.example/proxy/'+('very-long-segment-'.repeat(18))+'/responses?region='+('longvalue'.repeat(12));
+  await fixtureInput(requestUrl(),longUrl);
+  fixtureAssert(requestUrl().value===longUrl&&window.__modelCalls.length===beforeLongUrlCalls,'Long URL editing must preserve the full value and stay local');
+  requestUrl().focus();requestUrl().scrollIntoView({block:'center'});await fixtureTick();
+  const longBounds=requestUrl().getBoundingClientRect();
+  fixtureAssert(longBounds.width>0&&longBounds.left>=0&&longBounds.right<=innerWidth&&getComputedStyle(requestUrl()).whiteSpace!=='nowrap','Long URL editor must wrap within the panel');
+  const scrollBounds=shadow.querySelector('.ai-config-scroll').getBoundingClientRect();
+  fixtureAssert(shadow.activeElement===requestUrl()&&longBounds.top>=scrollBounds.top&&longBounds.bottom<=scrollBounds.bottom,'Focused URL editor must be visible inside the scroll area');
+  await fixtureInput(requestUrl(),beforeLongUrl);
   let resizeAndDrag=false,dispatchedResizeEvents=0,nativeResizeEvents=0;
   if(window.frameElement){
     const frame=window.frameElement;
@@ -348,20 +433,30 @@ setTimeout(async()=>{try{
     await resize(320);assertPanelFits('Restored 320px viewport must fit');
     resizeAndDrag=true;
   }
+  await checkSaveAtScrollPositions();
+  if(!advancedDetails.open){advancedDetails.querySelector(':scope > summary').click();await fixtureTick();}
+  await fixtureReveal(advancedDetails.querySelector('input'));
+  const scroll=shadow.querySelector('.ai-config-scroll');scroll.scrollTop=scroll.scrollHeight;await fixtureTick();
+  const advancedInputs=[...advancedDetails.querySelectorAll('input')];
+  fixtureAssert(advancedInputs.length>=2,'Advanced disclosure must keep timeout and output controls');
+  const lastAdvanced=advancedInputs.at(-1),lastBounds=lastAdvanced.getBoundingClientRect(),barBounds=shadow.querySelector('.ai-savebar').getBoundingClientRect();
+  fixtureAssert(lastBounds.top>=scroll.getBoundingClientRect().top&&lastBounds.bottom<=barBounds.top+1,'Last advanced control must scroll above the save bar');
+  advancedDetails.querySelector(':scope > summary').click();await fixtureTick();
+  if(endpointDetails.open){endpointDetails.querySelector(':scope > summary').click();await fixtureTick();}
+  scroll.scrollTop=0;await fixtureTick();
   const save=shadow.querySelector('.ai-save');fixtureAssert(!!save,'Save and refresh action must remain available');
-  save.scrollIntoView({block:'center'});await fixtureTick();
-  const saveBounds=save.getBoundingClientRect();
-  fixtureAssert(saveBounds.width>0&&saveBounds.left>=0&&saveBounds.right<=innerWidth&&saveBounds.top>=0&&saveBounds.bottom<=innerHeight,'Save action must be reachable by scrolling');
+  const saveBounds=saveVisible();
   const panel=shadow.querySelector('.main-page'),panelBounds=panel.getBoundingClientRect();
   fixtureAssert(panelBounds.left>=0&&panelBounds.right<=innerWidth,'Panel must fit viewport: '+JSON.stringify({viewport:innerWidth,left:panelBounds.left,right:panelBounds.right,width:panelBounds.width}));
-  const fieldNodes=[...shadow.querySelectorAll('.ai-config input,.ai-config select,.ai-config button')];
+  const fieldNodes=[...shadow.querySelectorAll('.ai-config input,.ai-config textarea,.ai-config select,.ai-config button')];
   for(const node of fieldNodes){const bounds=node.getBoundingClientRect();if(bounds.width>0)fixtureAssert(bounds.left>=-1&&bounds.right<=innerWidth+1,'Settings control must fit viewport: '+node.className);}
   fixtureAssert(shadow.querySelector('.ai-config').scrollWidth<=shadow.querySelector('.ai-config').clientWidth+1,'Settings content must not overflow horizontally');
   const report={fullArtifact:true,explicitFetchOnly:true,listsIndependent:true,manualModelRetained:true,
     effortsIndependent:true,loadingAndErrors:true,staleRepliesRejected:true,abaRejected:true,
     customUrlsIndependent:true,derivedAndExplicitModelUrls:true,urlChangesCancel:true,urlAbaRejected:true,resetUrls:true,unknownAnswerPathPreserved:true,
-    htmlRenderedAsText:true,fetchDoesNotSave:true,modelGetRequests:window.__modelCalls.length,
-    layout:{viewport:[innerWidth,innerHeight],panel:panelBounds.toJSON(),save:saveBounds.toJSON(),controlsFit:true,resizeAndDrag,dispatchedResizeEvents}};
+    htmlRenderedAsText:true,fetchDoesNotSave:true,modelGetRequests:window.__modelCalls.length,glass:glassReport(),
+    ui:{collapsibleSettings:true,disclosureDoesNotSave:true,accessibleLabels:true,keyboardFocusablePanelToggle:true,panelToggleState:true,multilineUrl:true,longUrlPreserved:true,savePinnedAtAllScrollPositions:true,advancedFieldsReachable:true},
+    layout:{viewport:[innerWidth,innerHeight],panel:panelBounds.toJSON(),save:saveBounds.toJSON(),configScrollHeight:scroll.clientHeight,controlsFit:true,resizeAndDrag,dispatchedResizeEvents}};
   fixtureWrite('report',report);fixtureWrite('phase','saved');
   stage('saving');
   save.click();
@@ -369,8 +464,49 @@ setTimeout(async()=>{try{
 '''
 
 nonce = f"model-review-{time.time_ns()}:"
+glass_background = r'''
+<style>
+.fixture-glass-backdrop{position:fixed;inset:0;overflow:hidden;z-index:0;background:#f3f5fa;color:#24304b;font:14px/1.6 "Microsoft YaHei",sans-serif;pointer-events:none}
+.fixture-glass-backdrop *{box-sizing:border-box;min-width:0}
+.fixture-course-top{height:64px;display:flex;align-items:center;justify-content:space-between;padding:0 28px;background:#fff;border-bottom:1px solid #e3e8f2}
+.fixture-course-brand{font-size:20px;font-weight:700;color:#254a80}.fixture-course-user{font-size:12px;color:#64738b}
+.fixture-course-layout{display:grid;grid-template-columns:208px minmax(0,1fr);height:calc(100% - 64px)}
+.fixture-course-nav{padding:25px 20px;background:#172a48;color:#d5e2f6}.fixture-course-nav strong{display:block;margin-bottom:24px;font-size:15px;color:white}
+.fixture-course-nav div{margin:10px -8px;padding:10px 14px;border-radius:8px}.fixture-course-nav div:first-of-type{background:#2e568e;color:#fff}
+.fixture-course-body{padding:25px 28px;overflow:hidden}.fixture-course-heading{margin:0 0 8px;font-size:23px;line-height:1.4;color:#152a4d}.fixture-course-lead{margin:0 0 22px;color:#687894}
+.fixture-course-hero{display:flex;justify-content:space-between;gap:25px;padding:24px;border-radius:14px;background:#e4efff;border:1px solid #ccdef8}
+.fixture-course-hero strong{font-size:20px;color:#254b83}.fixture-course-hero p{margin:6px 0 0;color:#536f96}.fixture-course-progress{min-width:140px;align-self:center;font-size:30px;font-weight:600;color:#315d99}
+.fixture-course-section-title{margin:25px 0 13px;font-size:17px;color:#233957}.fixture-course-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.fixture-course-card{border-radius:12px;overflow:hidden;background:#fff;border:1px solid #e1e7f0}.fixture-course-thumb{position:relative;height:150px;overflow:hidden;padding:17px;color:#fff;font-size:13px;font-weight:600}
+.fixture-course-thumb:before,.fixture-course-thumb:after{content:"";position:absolute;border:1px solid #ffffff70;border-radius:50%;width:140px;height:140px;right:-20px;bottom:-42px}
+.fixture-course-thumb:after{width:88px;height:88px;right:55px;bottom:24px;background:#ffffff10}.fixture-course-thumb.blue{background:linear-gradient(135deg,#142e5b,#4168bd)}.fixture-course-thumb.purple{background:linear-gradient(135deg,#593778,#a15b9d)}.fixture-course-thumb.orange{background:linear-gradient(135deg,#aa502a,#e4a549)}
+.fixture-course-card-copy{padding:14px 15px}.fixture-course-card-copy strong{display:block;font-size:15px;color:#21334d}.fixture-course-card-copy p{margin:5px 0 0;color:#7a889d;font-size:12px}
+.fixture-course-notes{margin-top:22px;padding:18px 20px;background:#fff;border:1px solid #e1e7f0;border-radius:12px}.fixture-course-notes strong{display:block;margin-bottom:8px}.fixture-course-notes p{margin:6px 0;font-size:13px;color:#65748e}
+@media(max-width:700px){.fixture-course-layout{grid-template-columns:132px minmax(0,1fr)}.fixture-course-nav{padding:24px 12px;font-size:12px}.fixture-course-body{padding:24px 18px}.fixture-course-cards{grid-template-columns:1fr}.fixture-course-card:not(:first-child){display:none}.fixture-course-hero{display:block;padding:17px}.fixture-course-progress{font-size:25px;margin-top:12px}.fixture-course-heading{font-size:19px}.fixture-course-top{padding:0 18px}.fixture-course-brand{font-size:16px}.fixture-course-user{display:none}}
+</style>
+<div class="fixture-glass-backdrop" aria-hidden="true">
+  <header class="fixture-course-top"><span class="fixture-course-brand">知行 · 课程学习</span><span class="fixture-course-user">学习空间　　课程消息　　个人中心</span></header>
+  <div class="fixture-course-layout">
+    <aside class="fixture-course-nav"><strong>我的学习空间</strong><div>正在学习</div><div>章节目录</div><div>课程作业</div><div>学习笔记</div><div>成绩与反馈</div></aside>
+    <main class="fixture-course-body">
+      <h1 class="fixture-course-heading">继续今天的学习</h1><p class="fixture-course-lead">从上次的进度继续，查看课程内容与待完成的练习。</p>
+      <section class="fixture-course-hero"><div><strong>本周学习计划</strong><p>已完成 6 个章节，继续探索新的课程内容。</p><p>下一节：理解数据与日常生活中的统计</p></div><div class="fixture-course-progress">6 / 10</div></section>
+      <h2 class="fixture-course-section-title">正在学习的课程</h2>
+      <section class="fixture-course-cards">
+        <article class="fixture-course-card"><div class="fixture-course-thumb blue">数据与逻辑 · 基础课程</div><div class="fixture-course-card-copy"><strong>统计思维与数据分析</strong><p>第三章　从样本理解总体</p></div></article>
+        <article class="fixture-course-card"><div class="fixture-course-thumb purple">阅读与表达 · 通识课程</div><div class="fixture-course-card-copy"><strong>文学阅读与写作</strong><p>第二章　文字中的观察与表达</p></div></article>
+        <article class="fixture-course-card"><div class="fixture-course-thumb orange">自然与科学 · 探索课程</div><div class="fixture-course-card-copy"><strong>生活中的科学</strong><p>第四章　看见身边的物理现象</p></div></article>
+      </section>
+      <section class="fixture-course-notes"><strong>课程动态</strong><p>本周练习已开放，可在章节学习后查看。</p><p>学习笔记支持按课程和章节整理，方便复习。</p><p>这是用于界面检查的本地课程样例，所有内容均为模拟数据。</p></section>
+    </main>
+  </div>
+</div>
+''' if args.glass_background else ''
 page = ('<!doctype html><html><head><meta charset="utf-8"><title>Offline model settings review</title></head><body>'
-        + ''.join(tags) + '<script>window.__modelReviewPrefix=' + json.dumps(nonce)
+        + glass_background + ''.join(tags) + '<script>window.__modelReviewPrefix=' + json.dumps(nonce)
+        + ';window.__uiPreview=' + json.dumps(args.preview)
+        + ';window.__glassBackground=' + json.dumps(args.glass_background)
+        + ';window.__glassFallback=' + json.dumps(args.glass_fallback)
         + ';window.__modelResources=' + json.dumps(resources) + ';' + setup + '</script><script src="'
         + ARTIFACT.as_uri() + '"></script></body></html>')
 fixture = fixture_dir / "dowork-model-settings.html"
@@ -393,7 +529,11 @@ command = [
     f"--window-size={max(args.width,500)},900", "--virtual-time-budget=20000", "--dump-dom"
 ]
 if args.screenshot:
-    command.append('--screenshot='+str(ROOT/'tests'/'endpoint-settings.png'))
+    if args.glass_background or args.glass_fallback:
+        screenshot_name = 'ui-glass-' + ('narrow' if args.width < 500 else 'desktop') + ('-standard' if args.glass_fallback else '-svg') + ('-default' if args.preview else '-flow') + '.png'
+    else:
+        screenshot_name = 'ui-settings-default.png' if args.preview else 'ui-settings.png'
+    command.append('--screenshot='+str(ROOT/'tests'/screenshot_name))
 command.append(target.as_uri())
 run = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", timeout=35)
 match = re.search(r'<pre id="model-settings-result"[^>]*>(.*?)</pre>', run.stdout, re.S)

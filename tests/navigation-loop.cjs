@@ -20,14 +20,15 @@ function frame(src, options={}) {
 }
 function harness(options={}) {
   const rootFrame=frame('https://course.test/knowledge/cards?knowledgeid=chapter-1&courseid=course');
-  const next={style:{display:''},isConnected:true,clicks:0,click(){this.clicks++;options.onNext?.(api);},getAttribute:()=>null};
-  const prev={style:{display:''},isConnected:true,getAttribute:()=>null};
-  const pageRoot={querySelectorAll:()=>[rootFrame],querySelector:(selector)=>selector==='iframe'?rootFrame:prev};
+  const next={style:{display:''},isConnected:true,clicks:0,textContent:'下一章',click(){this.clicks++;options.onNext?.(api);},getAttribute:()=>null};
+  const nextSection={style:{display:''},isConnected:true,clicks:0,textContent:'下一节',click(){this.clicks++;options.onNextSection?.(api);},getAttribute:()=>null};
+  const prev=options.modern?nextSection:null;
+  const pageRoot={querySelectorAll:(selector)=>selector==='iframe'?[rootFrame]:[],querySelector:(selector)=>selector==='iframe'?rootFrame:selector==='#prevNextFocusNext'?prev:null};
   const logs=[],timers=new Map(),cleanups=[];
   let now=0,inferences=0,timerId=0,documentNext=next;
   const config={platformParams:{cx:{parts:[{params:[{value:false},{value:!!options.autoNext},{value:false}]}]}},otherParams:{params:[{value:0},{value:100}]}};
   const sandbox={URL,AbortController,Date:{now:()=>now},
-    document:{documentElement:pageRoot,querySelector:()=>documentNext},
+    document:{documentElement:pageRoot,querySelector:(selector)=>selector.includes('nextChapter')?documentNext:pageRoot.querySelector(selector)},
     window:{location:{href:'https://course.test/mycourse/studentstudy?courseid=course&mooc2=1'}},
     useConfigStore:()=>config,useQuestionStore:()=>({clearQuestion(){}}),useLogStore:()=>({addLog:(message)=>logs.push(message)}),
     setInterval(callback){const id=++timerId;timers.set(id,callback);return id;},clearInterval:(id)=>timers.delete(id),
@@ -55,7 +56,7 @@ function harness(options={}) {
   };
   const exposure='    globalThis.chapter={processIframeTask,processWork,checkChapterCompletion};\n    init();';
   vm.runInNewContext(source.replace('    init();',exposure)+'\nuseCxChapterLogic();',sandbox);
-  const api={...sandbox.chapter,rootFrame,next,prev,pageRoot,config,logs,timers,
+  const api={...sandbox.chapter,rootFrame,next,nextSection,prev,pageRoot,config,logs,timers,
     inferences:()=>inferences,advanceTime:(duration)=>now+=duration,
     replaceNext:(value)=>documentNext=value,
     dispose:()=>cleanups.forEach((callback)=>callback())};
@@ -168,5 +169,23 @@ test('returning to an already departed chapter stops automatic chapter cycles',a
   await scan();assert.equal(h.next.clicks,2,'a new chapter must still advance');
   h.rootFrame.src='https://course.test/knowledge/cards?courseid=course&knowledgeid=chapter-1';reload(h.rootFrame);
   await scan();assert.equal(h.next.clicks,2,'a revisited chapter must stop the cycle');
+  h.dispose();
+});
+
+test('the visible next-section route preserves one-click behavior and stops automatic chapter cycles',async()=>{
+  const h=harness({autoNext:true,modern:true});await tick();
+  h.next.style.display='none';
+  h.rootFrame.nested.push(frame('https://course.test/api/work?workId=done',{task:true,finished:true}));
+  const scan=async()=>{h.processIframeTask();await tick();h.advanceTime(2000);h.processIframeTask();await tick();};
+  await scan();
+  h.processIframeTask();await tick();
+  assert.equal(h.nextSection.clicks,1);
+  assert.equal(h.next.clicks,0);
+  h.rootFrame.src='https://course.test/knowledge/cards?knowledgeid=chapter-2&courseid=course';reload(h.rootFrame);
+  await scan();assert.equal(h.nextSection.clicks,2,'A new section remains eligible');
+  h.rootFrame.src='https://course.test/knowledge/cards?courseid=course&knowledgeid=chapter-1';reload(h.rootFrame);
+  await scan();
+  assert.equal(h.nextSection.clicks,2,'Returning to a departed section must stop the cycle');
+  assert.equal(h.next.clicks,0,'A hidden legacy button must never be clicked');
   h.dispose();
 });

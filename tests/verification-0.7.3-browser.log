@@ -1,0 +1,22 @@
+{
+  "realDom": true,
+  "offline": true,
+  "scenarios": [
+    "finished-sibling-icon-with-blank-helper-advances-once",
+    "unfinished-neighbor-blocks-navigation",
+    "unrelated-blank-container-still-blocks",
+    "finished-player-inaccessible-helper-ignored",
+    "finished-inaccessible-video-confirmed-by-parent",
+    "completion-revoked-during-delay-blocks-navigation",
+    "ambiguous-sibling-icons-rejected",
+    "normal-scanner-blank-helper-confirms-and-advances-once",
+    "normal-scanner-finished-loading-video-advances-once"
+  ],
+  "diagnostics": {
+    "blocker": "[章节诊断] 当前原因：页面#3：未识别到平台完成标记；任务下一步=可用，章节下一章=可用",
+    "taskSource": "[章节诊断] 页面#3 视频；https://course.test/ananas/modules/video/index.html；文档=已加载；完成依据=无；iframe类=无；容器类=ans-attach-ct；图标类=ans-job-icon；直属图标=1，容器内资源=1；播放=0/未知秒，结束=否，暂停=是；阻塞=未识别到平台完成标记",
+    "stableScanExtraLines": 0
+  },
+  "errors": [],
+  "passed": true
+}

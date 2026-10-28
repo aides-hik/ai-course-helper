@@ -38,10 +38,37 @@
       const view = element.ownerDocument?.defaultView;
       for (let current = element; current; current = current.parentElement) {
         const style = view?.getComputedStyle?.(current) || current.style;
+        if (current.disabled || current.getAttribute?.("aria-disabled") === "true" || current.getAttribute?.("disabled") != null || current.matches?.(":disabled,.disabled,.is-disabled")) return false;
         if (current.hidden || current.getAttribute?.("aria-hidden") === "true" || style?.display === "none" || style?.visibility === "hidden" || style?.visibility === "collapse" || style?.opacity === "0" || style?.pointerEvents === "none") return false;
       }
       return typeof element.getClientRects !== "function" || element.getClientRects().length > 0;
     } catch { return false; }
+  };
+  const cxGetChapterNavigation = (root, outerDocument) => {
+    const find = (scope, selector) => {
+      const matches = Array.from(scope?.querySelectorAll?.(selector) || []);
+      const first = scope?.querySelector?.(selector);
+      if (first && !matches.includes(first)) matches.unshift(first);
+      return [...new Set(matches)];
+    };
+    const modern = find(root, "#prevNextFocusNext");
+    const legacy = find(outerDocument, ".jb_btn.jb_btn_92.fr.fs14.nextChapter");
+    const available = (buttons) => buttons.filter((button) => typeof button.click === "function" && cxChapterNavigationAllowed(button));
+    const modernAvailable = available(modern);
+    const legacyAvailable = available(legacy);
+    const base = { modern, legacy, modernAvailable, legacyAvailable };
+    const select = (element, kind, label, selector) => ({ ...base, element, kind, label, selector,
+      // Keep navigation attributes in memory only; they can contain signed
+      // paths. A reused DOM node must not change its destination while waiting.
+      action: JSON.stringify(["href", "onclick", "data-url", "data-href", "data-knowledgeid", "data-chapterid", "data-cardid", "data-nextid"].map((name) => element.getAttribute?.(name) ?? null)),
+      handler: element.onclick
+    });
+    // These are alternative platform controls. A hidden legacy control must
+    // not block the visible next-section button shown on the current page.
+    if (modernAvailable.length === 1) return select(modernAvailable[0], "section", "下一节", "#prevNextFocusNext");
+    if (modernAvailable.length > 1) return { ...base, element: null, reason: "存在多个可用的下一节按钮，无法确定跳转目标" };
+    if (legacyAvailable.length === 1) return select(legacyAvailable[0], "chapter", "下一章", ".nextChapter");
+    return { ...base, element: null, reason: legacyAvailable.length > 1 ? "存在多个可用的下一章按钮，无法确定跳转目标" : "下一节和下一章按钮均不可用" };
   };
   const useCxChapterLogic = () => {
     const logStore = useLogStore();
@@ -71,41 +98,94 @@
     let lastFrameChange = Date.now();
     let navigationPending = false;
     let lastCompletionMessage = "";
-    const isFinishedTask = (iframe) => {
-      var _a;
+    let lastDiagnosticKey = "";
+    let lastDiagnosticTime = 0;
+    let lastNavigationMessage = "";
+    let frameNumbers = new WeakMap();
+    let nextFrameNumber = 0;
+    const hasTaskClass = (element, name) => {
+      const className = typeof element?.className === "string" ? element.className : "";
+      return className.split(/\s+/).includes(name) || !!element?.classList?.contains(name);
+    };
+    const getTaskIconInfo = (iframe) => {
+      // Bind a sibling icon to exactly one resource. A completed icon elsewhere
+      // in the chapter must never mark another video or exercise complete.
+      for (let container = iframe.parentElement; container; container = container.parentElement) {
+        const icons = Array.from(container.children || []).filter((child) => hasTaskClass(child, "ans-job-icon"));
+        if (icons.length) {
+          const frames = Array.from(container.querySelectorAll?.("iframe") || []);
+          return { container, icons: icons.length, frames: frames.length,
+            icon: icons.length === 1 && frames.length === 1 && frames[0] === iframe ? icons[0] : null };
+        }
+        if (hasTaskClass(container, "ans-attach-ct") || /^(?:BODY|HTML)$/i.test(container.tagName || ""))
+          return { container, icons: 0, frames: container.querySelectorAll?.("iframe")?.length || 0, icon: null };
+      }
+      return { container: iframe.parentElement, icons: 0, frames: 0, icon: null };
+    };
+    const getTaskIcon = (iframe) => getTaskIconInfo(iframe).icon;
+    const getTaskCompletionMarker = (iframe) => {
       let element = iframe;
       while (element) {
-        const className = typeof element.className === "string" ? element.className : "";
-        if (className.split(/\s+/).includes("ans-job-finished") || ((_a = element.classList) == null ? void 0 : _a.contains("ans-job-finished")))
-          return true;
+        if (hasTaskClass(element, "ans-job-finished")) return element === iframe ? "iframe 完成标记" : "祖先容器完成标记";
+        if (hasTaskClass(element, "ans-attach-ct")) break;
         element = element.parentElement;
       }
-      return false;
+      return hasTaskClass(getTaskIcon(iframe), "ans-job-finished") ? "所属任务图标完成标记" : "";
+    };
+    const isFinishedTask = (iframe) => !!getTaskCompletionMarker(iframe);
+    const getChapterScope = (root = document.documentElement) => {
+      const outerFrames = Array.from(root?.querySelectorAll?.("iframe") || []);
+      const isCardsFrame = (iframe) => {
+        try { return /\/knowledge\/cards(?:\/|$)/i.test(new URL(iframe.src || "", window.location.href).pathname); }
+        catch { return false; }
+      };
+      // The outer study page also contains editor, upload and helper frames.
+      // Select the chapter before walking its descendants, never by DOM order.
+      let candidates = outerFrames.filter(isCardsFrame);
+      if (!candidates.length) candidates = outerFrames.filter((iframe) => (iframe.id || iframe.getAttribute?.("id")) === "iframe" && !isTaskFrame(iframe));
+      if (!candidates.length) candidates = outerFrames.filter((iframe) => {
+        const raw = typeof iframe.getAttribute === "function" ? iframe.getAttribute("src") : iframe.src;
+        return !!raw?.trim() && !/^(?:about:|javascript:|data:)/i.test(raw.trim())
+          && !hasTaskClass(iframe, "edui-default") && !isTaskFrame(iframe);
+      });
+      const iframe = candidates.length === 1 ? candidates[0] : null;
+      return { iframe, ignoredCount: iframe ? outerFrames.length - 1 : 0,
+        reason: candidates.length > 1 ? "发现多个章节主页面，无法确认当前章节，暂停自动处理"
+          : !iframe ? "未找到可确认的章节主页面，等待平台加载" : "" };
     };
     const getChapterPage = () => {
-      const iframe = document.documentElement.querySelector("iframe");
+      const { iframe } = getChapterScope();
+      let iframeDocument = null;
+      try { iframeDocument = iframe?.contentDocument || null; } catch { /* diagnosed below */ }
       return {
         url: window.location.href,
         iframe,
         src: (iframe == null ? void 0 : iframe.src) || "",
-        document: (iframe == null ? void 0 : iframe.contentDocument) || null
+        document: iframeDocument
       };
     };
     const isSamePage = (left, right) => left.url === right.url && left.iframe === right.iframe && left.src === right.src && left.document === right.document;
-    const collectChapterFrames = (root, result = [], visited = new Set()) => {
-      for (const iframe of Array.from(root?.querySelectorAll?.("iframe") || [])) {
-        if (visited.has(iframe)) continue;
+    const collectChapterFrames = (root) => {
+      const result = [];
+      const visited = new Set();
+      const visit = (iframe) => {
+        if (visited.has(iframe)) return;
         visited.add(iframe);
         result.push(iframe);
+        // Platform completion is authoritative. An already completed player's
+        // internal blank/cross-origin helper frames are not additional tasks.
+        if (isTaskFrame(iframe) && isFinishedTask(iframe)) return;
         try {
-          collectChapterFrames(iframe.contentDocument?.documentElement, result, visited);
+          for (const child of Array.from(iframe.contentDocument?.documentElement?.querySelectorAll?.("iframe") || [])) visit(child);
         } catch {
           // Cross-origin task frames remain in the list and block completion.
         }
-      }
+      };
+      const { iframe } = getChapterScope(root);
+      if (iframe) visit(iframe);
       return result;
     };
-    const isTaskFrame = (iframe) => /api\/work|modules\/(?:video|audio|ppt|doc|pdf|innerbook)/i.test(iframe.src || "") || !!iframe.parentElement?.querySelector?.(".ans-job-icon");
+    const isTaskFrame = (iframe) => /api\/work|modules\/(?:video|audio|ppt|doc|pdf|innerbook)/i.test(iframe.src || "") || !!getTaskIcon(iframe);
     const isWorkConfirmed = (iframe, iframeDocument) => {
       if (isFinishedTask(iframe)) return true;
       const status = iframeDocument?.querySelector?.(".work-status,.workStatus,#workStatus,[data-work-status]");
@@ -120,26 +200,123 @@
       const other = right[index];
       return item.iframe === other.iframe && item.doc === other.doc && item.src === other.src && item.ready === other.ready && item.finished === other.finished;
     });
-    const canAdvanceChapter = (root) => {
-      const allFrames = collectChapterFrames(root).filter((iframe) => !/^javascript:/i.test(iframe.src || ""));
-      if (allFrames.some((iframe) => {
+    const frameNumber = (iframe) => {
+      if (!frameNumbers.has(iframe)) frameNumbers.set(iframe, ++nextFrameNumber);
+      return frameNumbers.get(iframe);
+    };
+    const safeFrameAddress = (raw) => {
+      if (!raw) return "未设置地址";
+      try {
+        const parsed = new URL(raw, window.location.href);
+        if (/^https?:$/.test(parsed.protocol)) return (parsed.origin + parsed.pathname).slice(0, 220);
+        return parsed.protocol === "about:" ? "about:blank/srcdoc" : parsed.protocol + "（地址已省略）";
+      } catch { return "无法解析的地址（已省略）"; }
+    };
+    const inspectChapterCompletion = (root) => {
+      const scope = getChapterScope(root);
+      const frames = collectChapterFrames(root).filter((iframe) => !/^javascript:/i.test(iframe.src || "")).map((iframe) => {
+        const task = isTaskFrame(iframe);
+        const marker = getTaskCompletionMarker(iframe);
+        const iconInfo = getTaskIconInfo(iframe);
+        const src = iframe.src || "";
+        const type = /api\/work/i.test(src) ? "作业" : /modules\/video/i.test(src) ? "视频"
+          : /modules\/audio/i.test(src) ? "音频" : /modules\/(?:ppt|doc|pdf)/i.test(src) ? "文档"
+          : /modules\/innerbook/i.test(src) ? "电子书" : task ? "其他任务" : "容器";
+        let doc = null;
+        let documentState = "不可访问或尚未创建";
+        let workConfirmed = false;
+        let media = null;
         try {
-          const doc = iframe.contentDocument;
-          return !iframe.isConnected || !doc || doc.readyState !== "complete" || doc.URL === "about:blank";
-        } catch { return true; }
-      })) return false;
-      const frames = allFrames.filter(isTaskFrame);
-      return frames.length > 0 && frames.every((iframe) => {
-        try {
-          return iframe.isConnected && (isFinishedTask(iframe) || iframe.src.includes("api/work") && isWorkConfirmed(iframe, iframe.contentDocument));
-        } catch {
-          return false;
-        }
+          doc = iframe.contentDocument;
+          if (doc) {
+            documentState = doc.readyState !== "complete" ? "加载中（" + doc.readyState + "）"
+              : doc.URL === "about:blank" ? "空白页 about:blank" : "已加载";
+            if (type === "作业") workConfirmed = isWorkConfirmed(iframe, doc);
+            if (type === "视频" || type === "音频") {
+              const element = doc.documentElement?.querySelector?.("video, audio");
+              if (element) media = { current: Number.isFinite(element.currentTime) ? Math.floor(element.currentTime) : null,
+                duration: Number.isFinite(element.duration) ? Math.floor(element.duration) : null,
+                ended: !!element.ended, paused: !!element.paused };
+            }
+          }
+        } catch { documentState = "不可访问（跨域或读取失败）"; }
+        const confirmed = !!marker || workConfirmed;
+        let blocked = "";
+        if (!iframe.isConnected) blocked = "页面已从文档移除";
+        else if (task && marker) { /* platform marker is authoritative */ }
+        else if (!doc || doc.readyState !== "complete" || doc.URL === "about:blank") blocked = documentState;
+        else if (task && !confirmed) blocked = media?.ended ? "播放已结束，但未识别到平台完成标记" : "未识别到平台完成标记";
+        const rawSource = typeof iframe.getAttribute === "function" ? iframe.getAttribute("src") : iframe.src;
+        const sourceState = !rawSource?.trim() ? "未设置或为空" : safeFrameAddress(rawSource);
+        return { iframe, number: frameNumber(iframe), task, type, marker: marker || (workConfirmed ? "平台作业提交状态" : "无"),
+          confirmed, blocked, address: safeFrameAddress(src), documentState, media,
+          sourceState,
+          classes: typeof iframe.className === "string" ? iframe.className.slice(0, 120) : "",
+          containerClasses: typeof iconInfo.container?.className === "string" ? iconInfo.container.className.slice(0, 160) : "",
+          iconClasses: typeof iconInfo.icon?.className === "string" ? iconInfo.icon.className.slice(0, 160) : "",
+          iconCount: iconInfo.icons, resourceCount: iconInfo.frames };
       });
+      const tasks = frames.filter((frame) => frame.task);
+      return { frames, tasks, scope, complete: !scope.reason && tasks.length > 0 && !frames.some((frame) => frame.blocked) };
+    };
+    const canAdvanceChapter = (root) => inspectChapterCompletion(root).complete;
+    const logChapterNavigation = (message) => {
+      if (message === lastNavigationMessage) return;
+      lastNavigationMessage = message;
+      logStore.addLog("[章节诊断] 跳章：" + message, "primary");
+    };
+    const logChapterDiagnostics = (root, phase = "") => {
+      try {
+        const report = inspectChapterCompletion(root);
+        const autoNext = !!configStore.platformParams.cx.parts[0].params[1].value;
+        const onlyAnswers = !!configStore.platformParams.cx.parts[0].params[2]?.value;
+        const navigation = cxGetChapterNavigation(root, document);
+        const buttonState = (buttons, available) => !buttons.length ? "未找到" : available.length === 1 ? "可用" : available.length > 1 ? "多个可用，归属不明" : "隐藏或禁用";
+        const modernState = buttonState(navigation.modern, navigation.modernAvailable);
+        const legacyState = buttonState(navigation.legacy, navigation.legacyAvailable);
+        const selectedControl = navigation.element ? navigation.label + " " + navigation.selector : "无（" + navigation.reason + "）";
+        const blocked = report.frames.filter((frame) => frame.blocked);
+        const reason = report.scope.reason || (!report.frames.length ? "未发现章节 iframe"
+          : blocked.length ? blocked.slice(0, 20).map((frame) => "页面#" + frame.number + "：" + frame.blocked).join("；") + (blocked.length > 20 ? "；另有 " + (blocked.length - 20) + " 个阻塞页面" : "")
+          : !report.tasks.length ? "未识别到任务页面"
+          : !autoNext ? "平台任务已完成，自动跳章开关关闭"
+          : Date.now() - lastFrameChange < 1500 ? "平台任务已完成，等待页面稳定 1.5 秒"
+          : !navigation.element ? "平台任务已完成，下一步按钮不可用（" + navigation.reason + "）"
+          : navigationPending ? "已进入跳章流程，等待平台页面切换" : "完成条件满足，可以跳章");
+        const slowFrame = activeScan?.frame && Date.now() - activeScan.frameStartedAt >= 1000 ? frameNumber(activeScan.frame) : 0;
+        const processing = slowFrame ? "正在处理页面#" + slowFrame : phase || "扫描状态";
+        // The playback position is useful in the message but must not make a
+        // progressing video emit a new diagnostic on every 500 ms poll.
+        const key = JSON.stringify([reason, phase, slowFrame, autoNext, onlyAnswers, modernState, legacyState, selectedControl,
+          report.frames.map(({ iframe, media, ...frame }) => ({ ...frame, media: media && { ended: media.ended, paused: media.paused, duration: media.duration } }))]);
+        const now = Date.now();
+        if (key === lastDiagnosticKey && now - lastDiagnosticTime < 30000) return;
+        lastDiagnosticKey = key;
+        lastDiagnosticTime = now;
+        logStore.addLog(`[章节诊断] ${processing}：${report.frames.length} 个页面，${report.tasks.length} 个任务，${report.tasks.filter((frame) => frame.confirmed).length} 个已确认；自动跳章=${autoNext ? "开" : "关"}，只答题=${onlyAnswers ? "开" : "关"}`, "primary");
+        if (report.scope.ignoredCount) logStore.addLog(`[章节诊断] 扫描范围仅限章节主页面及其内容，已排除外层 ${report.scope.ignoredCount} 个非章节框架（编辑器或辅助页面）`, "info");
+        const rows = report.frames.length <= 20 ? report.frames : [...blocked, ...report.frames.filter((frame) => !frame.blocked)].slice(0, 20);
+        for (const frame of rows) {
+          const media = frame.media ? `；播放=${frame.media.current ?? "未知"}/${frame.media.duration ?? "未知"}秒，结束=${frame.media.ended ? "是" : "否"}，暂停=${frame.media.paused ? "是" : "否"}` : "";
+          logStore.addLog(`[章节诊断] 页面#${frame.number} ${frame.type}；${frame.address}；原始src=${frame.sourceState}；文档=${frame.documentState}；完成依据=${frame.marker}；iframe类=${frame.classes || "无"}；容器类=${frame.containerClasses || "无"}；图标类=${frame.iconClasses || "未唯一绑定"}；直属图标=${frame.iconCount}，容器内资源=${frame.resourceCount}${media}；${frame.blocked ? "阻塞=" + frame.blocked : "未阻塞"}${frame.task && frame.marker !== "无" ? "（不检查已完成任务的内部辅助页）" : ""}`, frame.blocked ? "warning" : "info");
+        }
+        if (report.frames.length > rows.length) logStore.addLog(`[章节诊断] 本组仅列出 ${rows.length}/${report.frames.length} 个页面，优先显示阻塞项`, "info");
+        logStore.addLog("[章节诊断] 当前原因：" + reason + `；任务下一步=${modernState}，章节下一章=${legacyState}；本次选择=${selectedControl}`, report.complete ? "primary" : "warning");
+      } catch {
+        // Diagnostics are observational; DOM changes while inspecting must not
+        // interrupt the existing task processor or relax completion checks.
+        const now = Date.now();
+        if (lastDiagnosticKey !== "diagnostic-read-failed" || now - lastDiagnosticTime >= 30000) {
+          lastDiagnosticKey = "diagnostic-read-failed";
+          lastDiagnosticTime = now;
+          logStore.addLog("[章节诊断] 读取状态时页面发生变化，下次扫描会重新记录", "info");
+        }
+      }
     };
     const checkChapterCompletion = async (root, context, taskId) => {
       if (!context.isCurrent() || taskId !== currentWatchIframeTaskId || navigationPending) return;
       const complete = canAdvanceChapter(root);
+      logChapterDiagnostics(root);
       const message = complete ? "平台已确认本页任务完成" : "本页仍有未确认完成的任务，请核对平台状态";
       if (message !== lastCompletionMessage) {
         lastCompletionMessage = message;
@@ -147,41 +324,54 @@
       }
       if (!complete || !configStore.platformParams.cx.parts[0].params[1].value || Date.now() - lastFrameChange < 1500) return;
       const before = chapterSnapshot(root);
-      const nextBtn = root.querySelector("#prevNextFocusNext");
-      const button = document.querySelector(".jb_btn.jb_btn_92.fr.fs14.nextChapter");
-      if (!cxChapterNavigationAllowed(nextBtn) || !cxChapterNavigationAllowed(button) || typeof button.click !== "function") return;
+      const navigation = cxGetChapterNavigation(root, document);
+      const button = navigation.element;
+      if (!button) return;
       const page = typeof getChapterPage === "function" ? getChapterPage() : null;
       const chapterKey = page ? JSON.stringify([cxStableResourceUrl(page.url, page.url, "chapter"), cxStableResourceUrl(page.src, page.url, "chapter")]) : "";
       const departed = checkChapterCompletion.departed || (checkChapterCompletion.departed = new Set());
       if (chapterKey && departed.has(chapterKey)) {
         navigationPending = true;
+        logChapterNavigation("已停止：当前章节之前已经离开，触发防循环保护");
         logStore.addLog("检测到已经离开的章节再次出现，已停止自动跳章，请手动核对课程进度", "warning");
         return;
       }
       navigationPending = true;
+      logChapterNavigation("检查通过，已选择" + navigation.label + "，等待设置的操作间隔后再次核对");
       const allowed = await aiWaitForDelay(Number(configStore.otherParams.params[0].value) || 0, {
         signal: context.signal,
         isCurrent: () => context.isCurrent() && taskId === currentWatchIframeTaskId && !!configStore.platformParams.cx.parts[0].params[1].value
       });
       if (!allowed) {
-        if (taskId === currentWatchIframeTaskId) navigationPending = false;
+        if (taskId === currentWatchIframeTaskId) {
+          navigationPending = false;
+          if (context.isCurrent()) logChapterNavigation("已取消：跳章开关关闭或当前处理已中止");
+        }
         return;
       }
       if (!context.isCurrent() || taskId !== currentWatchIframeTaskId) return;
       if (!configStore.platformParams.cx.parts[0].params[1].value) {
         navigationPending = false;
+        logChapterNavigation("已取消：自动跳章开关关闭");
         return;
       }
       if (!sameFrameSnapshot(before, chapterSnapshot(root)) || !canAdvanceChapter(root)) {
         navigationPending = false;
+        logChapterNavigation("已取消：等待期间页面、任务或完成状态发生变化，将重新检查");
+        logChapterDiagnostics(root);
         return;
       }
-      if (root.querySelector("#prevNextFocusNext") !== nextBtn || document.querySelector(".jb_btn.jb_btn_92.fr.fs14.nextChapter") !== button || !cxChapterNavigationAllowed(nextBtn) || !cxChapterNavigationAllowed(button)) {
+      const currentNavigation = cxGetChapterNavigation(root, document);
+      if (currentNavigation.element !== button || currentNavigation.kind !== navigation.kind || currentNavigation.action !== navigation.action || currentNavigation.handler !== navigation.handler || !cxChapterNavigationAllowed(button)) {
         navigationPending = false;
+        logChapterNavigation("已取消：下一步按钮被替换、隐藏、禁用或跳转目标改变");
         return;
       }
       if (chapterKey) departed.add(chapterKey);
-      try { button.click(); }
+      try {
+        logChapterNavigation("已点击" + navigation.label + "（" + navigation.selector + "），等待平台切换页面");
+        button.click();
+      }
       catch (error) {
         if (chapterKey) departed.delete(chapterKey);
         navigationPending = false;
@@ -207,18 +397,26 @@
         lastFrameChange = Date.now();
         navigationPending = false;
         lastCompletionMessage = "";
+        lastDiagnosticKey = "";
+        lastDiagnosticTime = 0;
+        lastNavigationMessage = "";
+        frameNumbers = new WeakMap();
+        nextFrameNumber = 0;
         questionStore.clearQuestion();
         configStore.menuIndex = HOME_TAB_NAME;
         currentPage = page;
         (_b = page.iframe) == null ? void 0 : _b.addEventListener("load", onRootIframeLoad);
       }
-      if (!page.iframe || !page.document || page.document.readyState !== "complete" || page.document.URL === "about:blank")
+      if (!page.iframe || !page.document || page.document.readyState !== "complete" || page.document.URL === "about:blank") {
+        logChapterDiagnostics(document.documentElement, "等待章节主页面加载");
         return;
+      }
       const frames = chapterSnapshot(document.documentElement);
       if (!sameFrameSnapshot(lastFrames, frames)) {
         lastFrames = frames;
         lastFrameChange = Date.now();
       }
+      logChapterDiagnostics(document.documentElement);
       if (activeScan) return;
       const signal = chapterController.signal;
       watchIframe(document.documentElement, {
@@ -236,7 +434,11 @@
         rxjs.from(allIframes).pipe(concatMap((iframe) => {
           if (thisTaskId !== currentWatchIframeTaskId || !context.isCurrent())
             return Promise.resolve();
-          return processIframe(iframe, context);
+          scan.frame = iframe;
+          scan.frameStartedAt = Date.now();
+          return processIframe(iframe, context).finally(() => {
+            if (scan.frame === iframe) scan.frame = null;
+          });
         })).subscribe({
           complete: async () => {
             try { await checkChapterCompletion(documentElement, context, thisTaskId); }
@@ -537,7 +739,7 @@
       });
     };
     const processIframeBody = async (iframe, iframeSrc, iframeDocument, iframeWindow, context) => {
-      var _a, _b;
+      var _a;
       if (!context.isCurrent())
         return;
       if (iframeSrc.includes("javascript:"))
@@ -556,7 +758,7 @@
         if (configStore.platformParams.cx.parts[0].params[2].value) {
           logStore.addLog("只答题，不做其他已开启，可在设置里调整", "primary");
         } else {
-          const ansJobIcon = (_b = iframe.parentElement) == null ? void 0 : _b.querySelector(".ans-job-icon");
+          const ansJobIcon = getTaskIcon(iframe);
           if (ansJobIcon) {
             configStore.menuIndex = HOME_TAB_NAME;
             if (iframeSrc.includes("video")) {
@@ -576,6 +778,15 @@
     const processIframe = async (iframe, context) => {
       if (iframe.src.includes("javascript:"))
         return Promise.resolve();
+      if (isTaskFrame(iframe) && isFinishedTask(iframe)) {
+        // The marker belongs to the chapter document; checking it does not
+        // require a finished resource's own document to load or be accessible.
+        try {
+          if (/modules\/(?:video|audio)/i.test(iframe.src || ""))
+            iframe.contentDocument?.documentElement?.querySelector("video, audio")?.pause();
+        } catch { /* completed media may be cross-origin */ }
+        return { state: "completed" };
+      }
       if (!iframe.contentDocument || !iframe.contentWindow)
         return Promise.resolve();
       if (!await waitIframeLoad(iframe, context)) return { state: "waiting" };

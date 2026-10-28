@@ -1,0 +1,65 @@
+{
+  "realDom": true,
+  "offline": true,
+  "scenarios": [
+    "finished-sibling-icon-with-blank-helper-advances-once",
+    "unfinished-neighbor-blocks-navigation",
+    "unrelated-blank-container-still-blocks",
+    "finished-player-inaccessible-helper-ignored",
+    "finished-inaccessible-video-confirmed-by-parent",
+    "completion-revoked-during-delay-blocks-navigation",
+    "ambiguous-sibling-icons-rejected",
+    "normal-scanner-blank-helper-confirms-and-advances-once",
+    "normal-scanner-finished-loading-video-advances-once",
+    "normal-scanner-ignores-five-outer-blank-editor-helpers",
+    "visible-next-section-advances-once-with-hidden-legacy-next-chapter",
+    "legacy-next-chapter-advances-when-modern-missing",
+    "legacy-next-chapter-advances-when-modern-hidden",
+    "completed-task-with-both-navigation-controls-hidden-does-not-click",
+    "completed-task-with-both-navigation-controls-disabled-does-not-click",
+    "navigation-delay-cancels-when-modern-control-replaced",
+    "navigation-delay-cancels-when-modern-control-hidden"
+  ],
+  "navigation": {
+    "bothVisible": {
+      "modernClicks": 1,
+      "legacyClicks": 0
+    },
+    "userScreenshot": {
+      "modernClicks": 1,
+      "legacyClicks": 0,
+      "legacyStillHidden": true,
+      "action": "[章节诊断] 跳章：已点击下一节（#prevNextFocusNext），等待平台切换页面"
+    },
+    "legacyWithModernmissing": {
+      "modernClicks": 0,
+      "legacyClicks": 1
+    },
+    "legacyWithModernhidden": {
+      "modernClicks": 0,
+      "legacyClicks": 1
+    },
+    "bothhidden": {
+      "modernClicks": 0,
+      "legacyClicks": 0,
+      "reason": "[章节诊断] 当前原因：平台任务已完成，下一步按钮不可用（下一节和下一章按钮均不可用）；任务下一步=隐藏或禁用，章节下一章=隐藏或禁用；本次选择=无（下一节和下一章按钮均不可用）"
+    },
+    "bothdisabled": {
+      "modernClicks": 0,
+      "legacyClicks": 0,
+      "reason": "[章节诊断] 当前原因：平台任务已完成，下一步按钮不可用（下一节和下一章按钮均不可用）；任务下一步=隐藏或禁用，章节下一章=隐藏或禁用；本次选择=无（下一节和下一章按钮均不可用）"
+    }
+  },
+  "diagnostics": {
+    "blocker": "[章节诊断] 当前原因：页面#3：未识别到平台完成标记；任务下一步=可用，章节下一章=可用；本次选择=下一节 #prevNextFocusNext",
+    "taskSource": "[章节诊断] 页面#3 视频；https://course.test/ananas/modules/video/index.html；原始src=https://course.test/ananas/modules/video/index.html；文档=已加载；完成依据=无；iframe类=无；容器类=ans-attach-ct；图标类=ans-job-icon；直属图标=1，容器内资源=1；播放=0/未知秒，结束=否，暂停=是；阻塞=未识别到平台完成标记",
+    "stableScanExtraLines": 0
+  },
+  "outerHelpers": {
+    "blankFrames": 5,
+    "beforeAndAfterChapter": true,
+    "scopedSummary": "[章节诊断] 扫描状态：2 个页面，1 个任务，1 个已确认；自动跳章=开，只答题=开"
+  },
+  "errors": [],
+  "passed": true
+}

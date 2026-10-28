@@ -427,7 +427,7 @@
               quiz.blocked = true;
               question.answerStatus = "error";
               question.answer = [(answers == null ? void 0 : answers.length) ? "模型答案无法完整且唯一地匹配视频选项，请手动作答" : ((_c = response.error) == null ? void 0 : _c.message) || (((_d = response.meta) == null ? void 0 : _d.billing_result) === "exhausted" ? "API 额度不足，请检查所选服务的账户余额" : "模型未返回可用答案，请手动作答")];
-              options.log(`视频弹题搜题未完成，请到「答题」页签查看原因`, "warning");
+              options.log(`视频弹题搜题未完成，请到「解题」页签查看原因`, "warning");
               return;
             }
             quiz.applying = true;
@@ -742,6 +742,14 @@
     let now = /* @__PURE__ */ new Date();
     return formatDateTime(now);
   };
+  const LOG_HISTORY_LIMIT = 500;
+  const formatLogExport = (logs) => [
+    `AI 网课学习助手 v${getScriptInfo().version}`,
+    `导出时间：${new Date().toLocaleString()}`,
+    `当前保留 ${logs.length} 条日志（最多 ${LOG_HISTORY_LIMIT} 条）`,
+    "",
+    ...logs.map((item) => `[${item.time}] [${item.type || "primary"}] ${item.message}`)
+  ].join("\n");
   const useLogStore = pinia.defineStore("logStore", {
     state: () => ({
       logList: []
@@ -754,6 +762,8 @@
           type
         };
         this.logList.push(log);
+        if (this.logList.length > LOG_HISTORY_LIMIT)
+          this.logList.splice(0, this.logList.length - LOG_HISTORY_LIMIT);
       }
     }
   });
@@ -818,6 +828,58 @@
     setup(__props) {
       const configStore = useConfigStore();
       const announcements = vue.ref([]);
+      const copyStatus = vue.ref("");
+      const manualLogText = vue.ref("");
+      const manualLogField = vue.ref(null);
+      const copying = vue.ref(false);
+      let copyResetTimer = 0;
+      vue.onBeforeUnmount(() => clearTimeout(copyResetTimer));
+      const logMode = vue.ref("brief");
+      const cleanDiagnosticText = (message) => String(message || "").replace(/（(?:#prevNextFocusNext|\.nextChapter)）/g, "");
+      const overview = vue.computed(() => {
+        const logs = __props.logList || [];
+        let snapshot = null;
+        let snapshotIndex = -1;
+        for (let index = logs.length - 1; index >= 0; index--) {
+          const match = String(logs[index].message || "").match(/^\[章节诊断\].*?：(\d+) 个页面，(\d+) 个任务，(\d+) 个已确认/);
+          if (match) {
+            snapshot = { total: Number(match[2]), completed: Number(match[3]) };
+            snapshotIndex = index;
+            break;
+          }
+        }
+        const recent = logs.slice(Math.max(0, snapshotIndex));
+        const latestReason = [...recent].reverse().find((item) => String(item.message || "").startsWith("[章节诊断] 当前原因："));
+        const latestJump = [...recent].reverse().find((item) => String(item.message || "").startsWith("[章节诊断] 跳章："));
+        const reason = latestReason ? cleanDiagnosticText(latestReason.message).replace(/^\[章节诊断\] 当前原因：/, "").split("；")[0] : "";
+        const jump = latestJump ? cleanDiagnosticText(latestJump.message).replace(/^\[章节诊断\] 跳章：/, "") : "";
+        const total = snapshot?.total || 0;
+        const completed = Math.min(total, snapshot?.completed || 0);
+        const isComplete = total > 0 && completed === total;
+        const needsReview = /不可用|无法确认|未识别到|不可访问|已停止|暂停自动|无法确定/.test(reason) || /已取消|已停止/.test(jump);
+        const state = needsReview ? "attention" : isComplete ? "complete" : total ? "running" : "waiting";
+        return {
+          state, total, completed,
+          badge: state === "complete" ? "已完成" : state === "running" ? "进行中" : state === "attention" ? "待核对" : "等待任务",
+          title: isComplete ? "本页任务已完成" : state === "attention" ? "有任务需要查看" : total ? "继续当前学习任务" : "准备好开始学习",
+          note: jump || reason || (total ? "任务状态会随平台反馈更新。" : "打开课程或题目页面，学习状态会显示在这里。"),
+          progress: total ? `${completed} / ${total}` : "等待识别"
+        };
+      });
+      const providerName = vue.computed(() => configStore.ai?.provider === "deepseek" ? "DeepSeek" : "OpenAI");
+      const modelName = vue.computed(() => {
+        const ai = configStore.ai || {};
+        return (ai.provider === "deepseek" ? ai.deepseekModel : ai.model) || "尚未选择模型";
+      });
+      const visibleLogs = vue.computed(() => (logMode.value === "detail" ? __props.logList || [] : (__props.logList || []).filter((item) => {
+        const message = String(item.message || "");
+        if (message.startsWith("[章节诊断]")) return /^\[章节诊断\] (?:当前原因：|跳章：)/.test(message) && !/等待页面稳定/.test(message);
+        return !/^(?:用户悉知：|脚本加载成功，正在解析网页|请不要多个脚本同时使用|如果脚本出现异常|正在解析任务点，请稍等|检测到用户进入到章节学习页面)/.test(message);
+      })).map((item) => ({
+        ...item,
+        displayMessage: logMode.value !== "detail" && /^\[章节诊断\] (?:当前原因：|跳章：)/.test(String(item.message || ""))
+          ? cleanDiagnosticText(item.message).replace(/^\[章节诊断\] (?:当前原因：|跳章：)/, "").split("；")[0] : item.message
+      })));
       vue.onMounted(async () => {
         announcements.value = await getNotice();
       });
@@ -829,50 +891,99 @@
         event.preventDefault();
         configStore.menuIndex = ANSWER_TAB_NAME$1;
       };
+      const copyLogs = async () => {
+        if (copying.value) return;
+        clearTimeout(copyResetTimer);
+        const text = formatLogExport(__props.logList || []);
+        copying.value = true;
+        manualLogText.value = "";
+        copyStatus.value = "正在复制…";
+        try {
+          if (typeof navigator.clipboard?.writeText !== "function")
+            throw new Error("Clipboard unavailable");
+          await navigator.clipboard.writeText(text);
+          copyStatus.value = "日志已复制";
+          copyResetTimer = setTimeout(() => { copyStatus.value = ""; }, 2400);
+        } catch {
+          manualLogText.value = text;
+          copyStatus.value = "自动复制未成功，请在下方全选并复制日志。";
+          await vue.nextTick();
+          manualLogField.value?.focus();
+          manualLogField.value?.select();
+        } finally {
+          copying.value = false;
+        }
+      };
       return (_ctx, _cache) => {
         const _component_el_text = vue.resolveComponent("el-text");
-        const _component_el_divider = vue.resolveComponent("el-divider");
         const _component_el_scrollbar = vue.resolveComponent("el-scrollbar");
-        return vue.openBlock(), vue.createElementBlock("div", _hoisted_1$5, [
-          vue.createVNode(_sfc_main$9, { items: announcements.value }, null, 8, ["items"]),
+        return vue.createElementVNode("div", _hoisted_1$5, [
+          vue.createVNode(_sfc_main$9, { items: announcements.value }),
+          vue.createElementVNode("section", { class: "ai-overview", "aria-label": "当前学习状态" }, [
+            vue.createElementVNode("div", { class: "ai-overview-heading" }, [
+              vue.createElementVNode("span", null, "学习状态"),
+              vue.createElementVNode("span", { class: "ai-status-badge", "data-state": overview.value.state }, overview.value.badge)
+            ]),
+            vue.createElementVNode("h2", { class: "ai-overview-title" }, overview.value.title),
+            vue.createElementVNode("p", { class: "ai-overview-note" }, overview.value.note),
+            vue.createElementVNode("div", { class: "ai-overview-metrics" }, [
+              vue.createElementVNode("div", { class: "ai-metric" }, [
+                vue.createElementVNode("span", { class: "ai-metric-label" }, "任务进度"),
+                vue.createElementVNode("strong", { class: "ai-metric-value" }, overview.value.progress)
+              ]),
+              vue.createElementVNode("div", { class: "ai-metric" }, [
+                vue.createElementVNode("span", { class: "ai-metric-label" }, "模型服务"),
+                vue.createElementVNode("strong", { class: "ai-metric-value", title: modelName.value }, providerName.value)
+              ])
+            ])
+          ]),
+          vue.createElementVNode("div", { class: "ai-log-toolbar" }, [
+            vue.createElementVNode("div", { class: "ai-log-heading" }, [
+              vue.createElementVNode("span", null, "运行记录"),
+              vue.createElementVNode("span", { class: "ai-log-count" }, String(_ctx.logList.length))
+            ]),
+            vue.createElementVNode("button", {
+              type: "button", class: "ai-copy-logs", disabled: copying.value,
+              onClick: copyLogs
+            }, copying.value ? "正在复制…" : copyStatus.value === "日志已复制" ? "已复制" : "复制日志")
+          ]),
+          vue.createElementVNode("div", { class: "ai-log-controls" }, [
+            vue.createElementVNode("div", { class: "ai-log-modes", role: "group", "aria-label": "日志显示方式" }, [
+              vue.createElementVNode("button", { type: "button", class: "ai-log-mode", "aria-pressed": logMode.value === "brief", onClick: () => logMode.value = "brief" }, "简要"),
+              vue.createElementVNode("button", { type: "button", class: "ai-log-mode", "aria-pressed": logMode.value === "detail", onClick: () => logMode.value = "detail" }, "详细")
+            ]),
+            vue.createElementVNode("span", { class: "ai-log-mode-note" }, logMode.value === "brief" ? "仅显示关键进展" : "包含全部诊断记录")
+          ]),
+          vue.createElementVNode("p", { class: "ai-log-copy-status", role: "status", "aria-live": "polite" }, copyStatus.value),
+          manualLogText.value ? vue.createElementVNode("textarea", {
+            ref: manualLogField, class: "ai-log-export", readonly: true, rows: 6,
+            "aria-label": "可手动复制的日志", value: manualLogText.value,
+            onFocus: (event) => event.target.select()
+          }) : null,
           vue.createVNode(_component_el_scrollbar, {
             always: "",
             class: "log",
-            "max-height": "230px",
+            "max-height": "300px",
             onClick: handleLogClick
           }, {
-            default: vue.withCtx(() => [
-              (vue.openBlock(true), vue.createElementBlock(vue.Fragment, null, vue.renderList(_ctx.logList, (item, index) => {
-                return vue.openBlock(), vue.createElementBlock("div", { key: index }, [
+            default: () => visibleLogs.value.length ? visibleLogs.value.map((item, index) =>
+                vue.createElementVNode("div", { key: index, class: "ai-log-entry", "data-type": item.type || "primary" }, [
                   vue.createVNode(_component_el_text, {
                     class: "log-time",
                     size: "small",
                     type: "info"
                   }, {
-                    default: vue.withCtx(() => [
-                      vue.createTextVNode(vue.toDisplayString(item.time), 1)
-                    ]),
-                    _: 2
-                  }, 1024),
-                  vue.createVNode(_component_el_text, null, {
-                    default: vue.withCtx(() => [
-                      vue.createTextVNode(" ")
-                    ]),
-                    _: 1
+                    default: () => item.time
                   }),
+                  vue.createElementVNode("span", { class: "ai-log-dot", "aria-hidden": "true" }),
                   vue.createVNode(_component_el_text, {
+                    class: "ai-log-message",
                     type: item.type ? item.type : "primary",
                     size: "small",
-                    textContent: item.message
-                  }, null, 8, ["type", "textContent"]),
-                  vue.createVNode(_component_el_divider, {
-                    class: "log-divider",
-                    "border-style": "dashed"
+                    textContent: item.displayMessage
                   })
-                ]);
-              }), 128))
-            ]),
-            _: 1
+                ])
+              ) : [vue.createElementVNode("p", { class: "ai-log-empty" }, "暂时没有新的进展，完整记录可切换到详细视图。")]
           })
         ]);
       };
@@ -1041,10 +1152,10 @@
           if (generation === fetchGeneration) {state.loading = false; pendingController = null;}
         }
       };
-      const field = (label, key, options = {}) => vue.createElementVNode("label", {class: "ai-field"}, [
-        vue.createElementVNode("span", {class: "ai-label"}, label),
+      const field = (label, key, options = {}) => vue.createElementVNode("div", {class: "ai-field"}, [
+        vue.createElementVNode("label", {class: "ai-label", for: `ai-setting-${key}`}, label),
         vue.createVNode(vue.resolveComponent("el-input"), {
-          key,
+          key, id: `ai-setting-${key}`,
           modelValue: config.ai[key],
           "onUpdate:modelValue": (value) => config.ai[key] = value,
           size: "small", autocomplete: "off", ...options
@@ -1062,10 +1173,16 @@
           : [["default", "默认（跟随模型）"], ["none", "关闭思考（none）"], ["minimal", "极低（minimal）"], ["low", "低（low）"], ["medium", "中（medium）"], ["high", "高（high）"], ["xhigh", "极高（xhigh）"], ["max", "最高（max）"]];
         const effort = config.ai[effortKey] === undefined ? "default" : config.ai[effortKey];
         return vue.createElementVNode("div", {class: "ai-config"}, [
+        vue.createElementVNode("div", {class: "ai-config-scroll", tabindex: "0", "aria-label": "解题配置"}, [
+        vue.createElementVNode("section", {class: "ai-config-section", "aria-label": "模型连接"}, [
+        vue.createElementVNode("div", {class: "ai-section-heading"}, [
+          vue.createElementVNode("h3", null, "模型连接"),
+          vue.createElementVNode("span", null, "OpenAI / DeepSeek")
+        ]),
         vue.createElementVNode("label", {class: "ai-field"}, [
           vue.createElementVNode("span", {class: "ai-label"}, "模型服务"),
           vue.createElementVNode("select", {
-            class: "ai-provider-select", "aria-label": "模型服务", value: config.ai.provider ?? "openai",
+            id: "ai-setting-provider", class: "ai-provider-select", "aria-label": "模型服务", value: config.ai.provider ?? "openai",
             onChange: (event) => {
               const provider = event.target.value;
               if (provider === "openai" || provider === "deepseek") config.ai.provider = provider;
@@ -1075,14 +1192,7 @@
             vue.createElementVNode("option", {value: "deepseek"}, "DeepSeek")
           ])
         ]),
-        field("解题请求 URL", requestUrlKey, {type: "url", class: "ai-request-url", "aria-label": "解题请求 URL", placeholder: AI_ENDPOINT_DEFAULTS[provider]}),
-        field("模型列表 URL（留空自动推算）", modelsUrlKey, {type: "url", class: "ai-models-url", "aria-label": "模型列表 URL", placeholder: endpoints.modelsUrl || "填写完整的模型列表地址"}),
-        vue.createElementVNode("p", {class: `ai-note ai-url-status${endpoints.error || endpoints.modelsError ? " ai-model-error" : ""}`}, endpoints.error || endpoints.modelsError || `获取模型：${endpoints.modelsUrl}`),
-        vue.createVNode(vue.resolveComponent("el-button"), {
-          size: "small", class: "ai-reset-urls", onClick: () => {config.ai[requestUrlKey] = AI_ENDPOINT_DEFAULTS[provider]; config.ai[modelsUrlKey] = "";}
-        }, {default: () => "恢复默认地址"}),
-        vue.createElementVNode("p", {class: "ai-note"}, `${providerName === "OpenAI" ? "使用 Responses 接口的完整地址（通常以 /responses 结尾）" : "使用 Chat Completions 接口的完整地址（通常以 /chat/completions 结尾）"}。密钥、题目和图片会发送到填写的地址，请使用你信任的服务；优先使用 HTTPS。`),
-        field(`${providerName} API Key`, deepseek ? "deepseekApiKey" : "apiKey", {type: "password", "show-password": true, placeholder: "sk-…"}),
+        field(`${providerName} API Key`, deepseek ? "deepseekApiKey" : "apiKey", {type: "password", "show-password": true, placeholder: "sk-…", spellcheck: false}),
         vue.createElementVNode("div", {class: "ai-model-row"}, [
           field("模型名称", modelKey, {placeholder: deepseek ? "deepseek-flash" : "填写账号可用、支持结构化输出的模型"}),
           vue.createVNode(vue.resolveComponent("el-button"), {
@@ -1092,63 +1202,98 @@
         state.models.length ? vue.createElementVNode("label", {class: "ai-field"}, [
           vue.createElementVNode("span", {class: "ai-label"}, "可用模型"),
           vue.createElementVNode("select", {
-            class: "ai-provider-select ai-model-select", "aria-label": "选择已获取的模型",
+            id: "ai-setting-model-list", class: "ai-provider-select ai-model-select", "aria-label": "选择已获取的模型",
             value: state.models.some((model) => model.id === config.ai[modelKey]) ? config.ai[modelKey] : "",
             onChange: (event) => {if (state.models.some((model) => model.id === event.target.value)) config.ai[modelKey] = event.target.value;}
           }, [vue.createElementVNode("option", {value: "", disabled: true}, "请选择模型"), ...state.models.map((model) => vue.createElementVNode("option", {value: model.id, key: model.id}, model.id + (model.name && model.name !== model.id ? ` · ${model.name}` : "") + (model.inputModalities?.includes("image") ? " · 支持图片" : "")))])
         ]) : null,
         state.message ? vue.createElementVNode("p", {class: `ai-note ai-model-status${state.failed ? " ai-model-error" : ""}`, role: "status", "aria-live": "polite"}, state.message) : null,
-        vue.createElementVNode("p", {class: "ai-note"}, deepseek ? "deepseek-flash 支持图片题；deepseek-v4-pro 仅处理文字题。" : "使用支持 Responses API 与结构化输出的模型；图片题还需支持图像输入。"),
+        vue.createElementVNode("p", {class: "ai-note"}, deepseek ? "图片题需使用支持图像的模型；deepseek-v4-pro 仅处理文字。" : "模型需支持 Responses 和结构化输出，图片题还需图像输入。"),
+        field("解题请求 URL", requestUrlKey, {type: "textarea", rows: 2, resize: "vertical", class: "ai-request-url", "aria-label": "解题请求 URL", "aria-describedby": `ai-url-message-${provider}`, "aria-invalid": !!endpoints.error, spellcheck: false, placeholder: AI_ENDPOINT_DEFAULTS[provider]}),
+        vue.createElementVNode("p", {id: `ai-url-message-${provider}`, class: `ai-note${endpoints.error ? " ai-model-error" : ""}`}, endpoints.error || `${deepseek ? "Chat Completions" : "Responses"} 完整接口地址。密钥和题目会发往此地址。`),
+        vue.createElementVNode("details", {class: "ai-endpoint-details"}, [
+          vue.createElementVNode("summary", null, [
+            vue.createElementVNode("span", null, "模型列表与接口设置"),
+            vue.createElementVNode("span", {class: "ai-detail-state"}, endpoints.modelsError ? "检查地址" : "可选")
+          ]),
+          vue.createElementVNode("div", {class: "ai-details-body"}, [
+            field("模型列表 URL（留空自动推算）", modelsUrlKey, {type: "textarea", rows: 2, resize: "vertical", class: "ai-models-url", "aria-label": "模型列表 URL", "aria-describedby": `ai-models-url-message-${provider}`, "aria-invalid": !!endpoints.modelsError, spellcheck: false, placeholder: endpoints.modelsUrl || "填写完整的模型列表地址"}),
+            vue.createElementVNode("p", {id: `ai-models-url-message-${provider}`, class: `ai-note ai-url-status${endpoints.error || endpoints.modelsError ? " ai-model-error" : ""}`}, endpoints.error || endpoints.modelsError || `获取模型：${endpoints.modelsUrl}`),
+            vue.createVNode(vue.resolveComponent("el-button"), {
+              size: "small", class: "ai-reset-urls", onClick: () => {config.ai[requestUrlKey] = AI_ENDPOINT_DEFAULTS[provider]; config.ai[modelsUrlKey] = "";}
+            }, {default: () => "恢复默认地址"}),
+            vue.createElementVNode("p", {class: "ai-note"}, "模型列表地址会接收当前服务的密钥，请使用可信服务并优先使用 HTTPS。")
+          ])
+        ])
+        ]),
+        vue.createElementVNode("section", {class: "ai-config-section", "aria-label": "解题偏好"}, [
+        vue.createElementVNode("div", {class: "ai-section-heading"}, [
+          vue.createElementVNode("h3", null, "解题偏好")
+        ]),
         vue.createElementVNode("label", {class: "ai-field"}, [
           vue.createElementVNode("span", {class: "ai-label"}, "思考程度"),
           vue.createElementVNode("select", {
-            class: "ai-provider-select ai-reasoning-select", "aria-label": "思考程度", value: effort,
+            id: "ai-setting-effort", class: "ai-provider-select ai-reasoning-select", "aria-label": "思考程度", value: effort,
             onChange: (event) => {if (effortChoices.some(([value]) => value === event.target.value)) config.ai[effortKey] = event.target.value;}
           }, [
             ...effortChoices.map(([value, label]) => vue.createElementVNode("option", {value, key: value}, label)),
             ...(effortChoices.some(([value]) => value === effort) ? [] : [vue.createElementVNode("option", {value: effort, disabled: true}, "无效设置，请重新选择")])
           ])
         ]),
-        vue.createElementVNode("p", {class: "ai-note"}, "思考程度越高，通常耗时和用量越多。各模型支持的档位不同，不确定时选默认；模型列表不代表均适合解题。"),
+        vue.createElementVNode("p", {class: "ai-note"}, "不确定时选默认。更高档位通常耗时和用量更多，支持情况以模型为准。"),
+        vue.createElementVNode("div", {class: "ai-concurrency-heading"}, [
+          vue.createElementVNode("div", null, [
+            vue.createElementVNode("label", {class: "ai-label", for: "ai-setting-concurrent"}, "并发答题"),
+            vue.createElementVNode("p", {class: "ai-note"}, config.ai.concurrentEnabled === true ? "同时解答剩余题目，跳过已有作答" : "当前逐题解答")
+          ]),
+          vue.createVNode(vue.resolveComponent("el-switch"), {
+            id: "ai-setting-concurrent", class: "ai-concurrent-switch", "aria-label": "并发答题", modelValue: config.ai.concurrentEnabled === true,
+            "onUpdate:modelValue": (value) => config.ai.concurrentEnabled = value === true
+          })
+        ]),
         vue.createElementVNode("div", {class: "ai-metrics"}, [
           vue.createElementVNode("div", {class: "ai-field"}, [
-            vue.createElementVNode("span", {class: "ai-label"}, "并发答题"),
-            vue.createVNode(vue.resolveComponent("el-switch"), {
-              class: "ai-concurrent-switch", "aria-label": "并发答题", modelValue: config.ai.concurrentEnabled === true,
-              "onUpdate:modelValue": (value) => config.ai.concurrentEnabled = value === true
-            })
-          ]),
-          vue.createElementVNode("label", {class: "ai-field"}, [
-            vue.createElementVNode("span", {class: "ai-label"}, "同时解题数"),
+            vue.createElementVNode("label", {class: "ai-label", for: "ai-setting-concurrency"}, "同时解题数"),
             vue.createVNode(vue.resolveComponent("el-input-number"), {
-              class: "ai-concurrency-count", "aria-label": "同时解题数", modelValue: config.ai.concurrency,
+              id: "ai-setting-concurrency", class: "ai-concurrency-count", "aria-label": "同时解题数", modelValue: config.ai.concurrency,
               "onUpdate:modelValue": (value) => config.ai.concurrency = Number.isFinite(Number(value)) ? Math.min(2500, Math.max(1, Math.floor(Number(value)))) : 3,
               min: 1, max: 2500, step: 1, "step-strictly": true, disabled: config.ai.concurrentEnabled !== true,
               size: "small", "controls-position": "right"
             })
-          ])
+          ]),
+          vue.createElementVNode("p", {class: "ai-note ai-concurrency-hint"}, "1–2500 题\n不足时仅处理剩余题目")
         ]),
-        vue.createElementVNode("p", {class: "ai-note"}, "开启后跳过已有作答，只并发解答当前页剩余题目；填空须全部填完才跳过。默认同时 3 题，可设 1–2500 题；不足设定数量时只处理剩余题目。"),
+        vue.createElementVNode("details", {class: "ai-advanced-details"}, [
+        vue.createElementVNode("summary", null, "超时与输出上限"),
+        vue.createElementVNode("div", {class: "ai-details-body"}, [
         vue.createElementVNode("div", {class: "ai-metrics"}, [
-          vue.createElementVNode("label", {class: "ai-field"}, [
-            vue.createElementVNode("span", {class: "ai-label"}, "超时（秒）"),
+          vue.createElementVNode("div", {class: "ai-field"}, [
+            vue.createElementVNode("label", {class: "ai-label", for: "ai-setting-timeout"}, "超时（秒）"),
             vue.createVNode(vue.resolveComponent("el-input-number"), {
+              id: "ai-setting-timeout", "aria-label": "超时（秒）",
               modelValue: config.ai.timeoutSeconds, "onUpdate:modelValue": (v) => config.ai.timeoutSeconds = v,
               min: 15, max: 300, step: 15, size: "small", "controls-position": "right"
             })
           ]),
-          vue.createElementVNode("label", {class: "ai-field"}, [
-            vue.createElementVNode("span", {class: "ai-label"}, "输出上限"),
+          vue.createElementVNode("div", {class: "ai-field"}, [
+            vue.createElementVNode("label", {class: "ai-label", for: "ai-setting-max-output"}, "输出上限"),
             vue.createVNode(vue.resolveComponent("el-input-number"), {
+              id: "ai-setting-max-output", "aria-label": "输出上限",
               modelValue: config.ai.maxOutputTokens, "onUpdate:modelValue": (v) => config.ai.maxOutputTokens = v,
               min: 1024, max: 32768, step: 1024, size: "small", "controls-position": "right"
             })
           ])
+        ])
+        ])
+        ])
+        ])
         ]),
+        vue.createElementVNode("div", {class: "ai-savebar"}, [
+        vue.createElementVNode("p", {class: "ai-note"}, "两家配置分别保存，刷新后开始使用。"),
         vue.createVNode(vue.resolveComponent("el-button"), {
           type: "primary", size: "small", class: "ai-save", onClick: () => {persistConfig(config); window.location.reload();}
-        }, {default: () => "保存并刷新"}),
-        vue.createElementVNode("p", {class: "ai-note"}, "两家的地址、密钥、模型和思考程度分别保存，改完后保存并刷新。题目及图片发给当前配置地址，按服务规则计费。图片无法读取时会提示手动处理。")
+        }, {default: () => "保存并刷新"})
+        ])
       ]);
       };
     }
@@ -1183,12 +1328,12 @@
           ]);
         });
         return vue.createElementVNode("div", { class: "answer-pane" }, [
-          vue.withDirectives(vue.createElementVNode("div", { class: "question-sheet" }, [
+          vue.withDirectives(vue.createElementVNode("div", { class: "question-sheet", tabindex: "0", "aria-label": "解答结果" }, [
             _hoisted_2$3,
             ...slips
           ]), [[vue.vShow, _ctx.questionList.length]]),
-          vue.createVNode(_sfc_ai_config),
-          vue.withDirectives(vue.createElementVNode("p", { class: "question-empty" }, "暂无题目"), [[vue.vShow, !_ctx.questionList.length]])
+          vue.withDirectives(vue.createElementVNode("p", { class: "question-empty" }, "暂无题目，可先完成模型配置。"), [[vue.vShow, !_ctx.questionList.length]]),
+          vue.createVNode(_sfc_ai_config)
         ]);
       };
     }
@@ -1206,7 +1351,7 @@
     "aria-label": "使用教程",
     tabindex: "0"
   };
-  const _hoisted_2$2 = /* @__PURE__ */ vue.createStaticVNode('<header class="guide-header"><h2 class="guide-title">AI 解题配置</h2><p class="guide-subtitle">支持 OpenAI / DeepSeek</p></header><ol class="guide-list"><li class="guide-card"><h3 class="guide-card-title">1. 选择模型服务</h3><p class="guide-copy">打开「答题」，选择 OpenAI 或 DeepSeek，填写对应的 API Key。两家的密钥和模型分别保存。DeepSeek 默认使用支持图片的 deepseek-flash；OpenAI 需填写支持 Responses API 与结构化输出的模型，图片题还需图像输入能力。</p></li><li class="guide-card"><h3 class="guide-card-title">2. 保存并开始</h3><p class="guide-copy">点击「保存并刷新」。开启「并发答题」可同时解答当前页多道题，并跳过已有作答；填空须全部填完。关闭时逐题处理。答案及简短解析显示在面板中，改完后保存并刷新。</p></li><li class="guide-card"><h3 class="guide-card-title">3. 核对答案</h3><p class="guide-copy">默认关闭章节自动提交、视频弹题自动处理和考试自动切换。模型可能答错，请核对后再提交。需要自动处理视频弹题时可在设置中启用，该功能会提交弹题。</p></li><li class="guide-card"><h3 class="guide-card-title">费用和密钥</h3><p class="guide-copy">题目和图片仅发送给所选服务，API 按用量计费。支持题干及选项中的 PNG、JPEG、WebP、GIF 图片；图片无法读取时请手动处理。密钥只保存到脚本管理器中。</p></li></ol>', 2);
+  const _hoisted_2$2 = /* @__PURE__ */ vue.createStaticVNode('<header class="guide-header"><h2 class="guide-title">AI 解题配置</h2><p class="guide-subtitle">支持 OpenAI / DeepSeek</p></header><ol class="guide-list"><li class="guide-card"><h3 class="guide-card-title">1. 选择模型服务</h3><p class="guide-copy">打开「解题」，选择 OpenAI 或 DeepSeek，填写对应的 API Key。两家的密钥和模型分别保存。DeepSeek 默认使用支持图片的 deepseek-flash；OpenAI 需填写支持 Responses API 与结构化输出的模型，图片题还需图像输入能力。</p></li><li class="guide-card"><h3 class="guide-card-title">2. 保存并开始</h3><p class="guide-copy">点击「保存并刷新」。开启「并发答题」可同时解答当前页多道题，并跳过已有作答；填空须全部填完。关闭时逐题处理。答案及简短解析显示在面板中，改完后保存并刷新。</p></li><li class="guide-card"><h3 class="guide-card-title">3. 核对答案</h3><p class="guide-copy">默认关闭章节自动提交、视频弹题自动处理和考试自动切换。模型可能答错，请核对后再提交。需要自动处理视频弹题时可在设置中启用，该功能会提交弹题。</p></li><li class="guide-card"><h3 class="guide-card-title">费用和密钥</h3><p class="guide-copy">题目和图片仅发送给所选服务，API 按用量计费。支持题干及选项中的 PNG、JPEG、WebP、GIF 图片；图片无法读取时请手动处理。密钥只保存到脚本管理器中。</p></li></ol>', 2);
   const _hoisted_4$1 = [
     _hoisted_2$2
   ];
@@ -6019,7 +6164,7 @@
           const model = (typeof rawModel === "string" ? rawModel.trim() : "") || (provider === "deepseek" ? "deepseek-flash" : "");
           if (!["openai", "deepseek"].includes(provider) || typeof key !== "string" || !key.trim() || !model) {
             configStore.menuIndex = ANSWER_TAB_NAME;
-            logStore.addLog("请在「答题」选择模型服务，填写对应的 API Key 和模型名称，再点击保存并刷新。", "warning");
+            logStore.addLog("请在「解题」选择模型服务，填写对应的 API Key 和模型名称，再点击保存并刷新。", "warning");
             updateVisible(true);
             return;
           }
@@ -6033,13 +6178,13 @@
       const tabs = vue.computed(() => [
         {
           name: "0",
-          label: "首页",
+          label: "概览",
           component: _sfc_main$8,
           props: { logList: logStore.logList }
         },
         {
           name: ANSWER_TAB_NAME,
-          label: "答题",
+          label: "解题",
           component: _sfc_main$6,
           props: { questionList: questionStore.questionList }
         },
@@ -6051,12 +6196,12 @@
         },
         {
           name: "3",
-          label: "教程",
+          label: "帮助",
           component: Tutorial
         },
         {
           name: "4",
-          label: "协议",
+          label: "关于",
           component: ScriptTip
         }
       ]);
@@ -6097,36 +6242,22 @@
     emits: ["toggleZoom"],
     setup(__props, { emit: __emit }) {
       const emit = __emit;
+      const config = useConfigStore();
       const toggleZoom = (value) => {
         emit("toggleZoom", value);
       };
       return (_ctx, _cache) => {
-        const _component_el_icon = vue.resolveComponent("el-icon");
-        return vue.openBlock(), vue.createElementBlock("div", {
-          onMousedown: _cache[2] || (_cache[2] = vue.withModifiers(() => {
-          }, ["stop"]))
+        return vue.createElementVNode("div", {
+          onMousedown: (event) => event.stopPropagation()
         }, [
-          vue.createVNode(_component_el_icon, {
-            onClick: _cache[0] || (_cache[0] = ($event) => toggleZoom(true)),
-            class: "zoom-icon",
-            size: "small"
-          }, {
-            default: vue.withCtx(() => [
-              vue.createVNode(vue.unref(minus_default))
-            ]),
-            _: 1
-          }),
-          vue.createVNode(_component_el_icon, {
-            onClick: _cache[1] || (_cache[1] = ($event) => toggleZoom(false)),
-            class: "zoom-icon is-spaced",
-            size: "small"
-          }, {
-            default: vue.withCtx(() => [
-              vue.createVNode(vue.unref(full_screen_default))
-            ]),
-            _: 1
-          })
-        ], 32);
+          vue.createElementVNode("button", {
+            type: "button", class: "ai-panel-toggle",
+            "aria-label": config.isMinus ? "展开面板" : "收起面板",
+            title: config.isMinus ? "展开面板" : "收起面板",
+            "aria-expanded": !config.isMinus,
+            onClick: () => toggleZoom(!config.isMinus)
+          }, [vue.createVNode(vue.unref(config.isMinus ? full_screen_default : minus_default), {"aria-hidden": "true"})])
+        ]);
       };
     }
   });
@@ -6134,14 +6265,54 @@
   const _hoisted_2 = { class: "title" };
   const _hoisted_3 = { class: "minus" };
   const WINDOW_EDGE_OFFSET = 11;
-  const PANEL_WIDTH = 360;
-  const MINIMIZED_PANEL_HEIGHT = 35;
+  const PANEL_WIDTH = 396;
+  const MINIMIZED_PANEL_HEIGHT = 88;
   const _sfc_main$1 = /* @__PURE__ */ vue.defineComponent({
     __name: "layout",
     setup(__props) {
       const isShow = vue.ref(false);
       const configStore = useConfigStore();
       const currentPlatformName = vue.computed(() => configStore.platformParams[configStore.platformName].name);
+      const panelRoot = vue.ref(null);
+      let uiMounted = false;
+      let motionEpoch = 0;
+      let panelMotion = null;
+      let motionTarget = null;
+      const animatePanelContent = async (selector, offset, duration, axis = "Y") => {
+        if (!uiMounted) return;
+        const epoch = ++motionEpoch;
+        await vue.nextTick();
+        if (epoch !== motionEpoch) return;
+        const element = panelRoot.value?.querySelector(selector);
+        if (!element || typeof element.animate !== "function") return;
+        const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+        const current = panelMotion && motionTarget === element ? getComputedStyle(element) : null;
+        const initial = current ? { opacity: current.opacity, transform: reduced ? "none" : current.transform }
+          : { opacity: 0.78, transform: reduced ? "none" : `translate${axis}(${offset}px)` };
+        panelMotion?.cancel();
+        motionTarget = element;
+        // Visibility, focus and vShow update immediately. This short reveal is
+        // decorative feedback on the content that is already available.
+        panelMotion = element.animate([initial, { opacity: 1, transform: "none" }], {
+          duration: reduced ? 100 : duration, easing: "cubic-bezier(0.22, 1, 0.36, 1)"
+        });
+        const animation = panelMotion;
+        animation.onfinish = () => {
+          if (panelMotion === animation) { panelMotion = null; motionTarget = null; }
+        };
+      };
+      vue.onMounted(() => { uiMounted = true; });
+      vue.watch(() => configStore.isMinus, (collapsed) => {
+        if (collapsed) {
+          const content = panelRoot.value?.querySelector(".ai-panel-content");
+          const focused = content?.getRootNode()?.activeElement;
+          if (focused && content.contains(focused)) panelRoot.value?.querySelector(".ai-panel-toggle")?.focus();
+        }
+        void animatePanelContent(collapsed ? ".ai-minimized-note" : ".ai-panel-content", collapsed ? -3 : -5, collapsed ? 160 : 220);
+      }, { flush: "post" });
+      vue.watch(() => configStore.menuIndex, (next, previous) => {
+        if (!configStore.isMinus) void animatePanelContent(".el-tabs__content", Number(next) > Number(previous) ? 6 : -6, 160, "X");
+      }, { flush: "post" });
       const stopConfigSync = watchConfigStorage(configStore);
       vue.onBeforeUnmount(stopConfigSync);
       vue.watch(configStore, (newVal) => {
@@ -6189,18 +6360,19 @@
         document.removeEventListener("mouseup", endDrag);
       };
       vue.onBeforeUnmount(() => {
+        uiMounted = false;
+        ++motionEpoch;
+        panelMotion?.cancel();
         endDrag();
         window.removeEventListener("resize", fitPanelToViewport);
       });
       return (_ctx, _cache) => {
-        const _component_el_icon = vue.resolveComponent("el-icon");
-        const _component_el_tooltip = vue.resolveComponent("el-tooltip");
-        const _component_el_text = vue.resolveComponent("el-text");
-        const _component_el_divider = vue.resolveComponent("el-divider");
         const _component_el_card = vue.resolveComponent("el-card");
-        return vue.withDirectives((vue.openBlock(), vue.createElementBlock("div", {
+        return vue.withDirectives(vue.createElementVNode("div", {
+          ref: panelRoot,
           style: vue.normalizeStyle(moveStyle.value),
-          class: "main-page"
+          class: "main-page",
+          "data-collapsed": configStore.isMinus ? "true" : "false"
         }, [
           vue.withDirectives(vue.createElementVNode("div", _hoisted_1, null, 512), [
             [vue.vShow, isDragging.value]
@@ -6217,58 +6389,32 @@
                 class: "card-header",
                 onMousedown: startDrag
               }, [
-                vue.createElementVNode("div", _hoisted_2, [
-                  vue.createElementVNode("span", null, vue.toDisplayString(currentPlatformName.value), 1),
-                  vue.createVNode(_component_el_tooltip, {
-                    effect: "dark",
-                    placement: "top-start",
-                    content: "拖动标题可以移动面板。答题前请先保存模型服务。",
-                    teleported: false
-                  }, {
-                    default: vue.withCtx(() => [
-                      vue.createVNode(_component_el_icon, {
-                        class: "warning-icon",
-                        size: "small"
-                      }, {
-                        default: vue.withCtx(() => [
-                          vue.createVNode(vue.unref(warning_default))
-                        ]),
-                        _: 1
-                      })
-                    ]),
-                    _: 1
-                  })
+                vue.createElementVNode("div", { class: "title ai-brand", title: "拖动标题移动面板" }, [
+                  vue.createElementVNode("span", { class: "ai-brand-mark", "aria-hidden": "true" }, [
+                    vue.createElementVNode("svg", { viewBox: "0 0 24 24", width: "22", height: "22", fill: "none" }, [
+                      vue.createElementVNode("path", { d: "M4 5.5C7 4.6 9.6 5.1 12 6.7C14.4 5.1 17 4.6 20 5.5V18C17 17.1 14.4 17.6 12 19.2C9.6 17.6 7 17.1 4 18V5.5Z", stroke: "currentColor", "stroke-width": "1.6", "stroke-linejoin": "round" }),
+                      vue.createElementVNode("path", { d: "M12 7V19", stroke: "currentColor", "stroke-width": "1.6", "stroke-linecap": "round" })
+                    ])
+                  ]),
+                  vue.createElementVNode("span", { class: "ai-brand-copy" }, [
+                    vue.createElementVNode("span", { class: "ai-brand-name" }, "AI 学习助手"),
+                    vue.createElementVNode("span", { class: "ai-brand-platform" }, String(currentPlatformName.value || "课程学习").replace(/\s*[·•]\s*AI 学习助手.*$/, ""))
+                  ])
                 ]),
                 vue.createVNode(_sfc_main$2, {
                   onToggleZoom: _cache[0] || (_cache[0] = ($event) => vue.unref(configStore).isMinus = $event)
                 })
-              ], 32)
+              ])
             ]),
             default: vue.withCtx(() => [
-              vue.withDirectives(vue.createVNode(_sfc_main$3, { onCustomEvent: handleVisibleChange }, null, 512), [
-                [vue.vShow, !vue.unref(configStore).isMinus]
-              ]),
-              vue.withDirectives(vue.createElementVNode("div", _hoisted_3, [
-                vue.createVNode(_component_el_text, {
-                  type: "info",
-                  size: "small"
-                }, {
-                  default: vue.withCtx(() => [
-                    vue.createTextVNode("已最小化，点击上方按钮恢复")
-                  ]),
-                  _: 1
-                }),
-                vue.createVNode(_component_el_divider, {
-                  class: "compact-divider",
-                  "border-style": "dashed"
-                })
-              ], 512), [
-                [vue.vShow, vue.unref(configStore).isMinus]
-              ])
+              vue.withDirectives(vue.createElementVNode("div", {
+                class: "ai-panel-content", "aria-hidden": configStore.isMinus ? "true" : "false", inert: configStore.isMinus || undefined
+              }, [vue.createVNode(_sfc_main$3, { onCustomEvent: handleVisibleChange })]), [[vue.vShow, !configStore.isMinus]]),
+              vue.withDirectives(vue.createElementVNode("p", { class: "ai-minimized-note" }, "已收起，学习任务继续运行"), [[vue.vShow, configStore.isMinus]])
             ]),
             _: 1
           })
-        ], 4)), [
+        ]), [
           [vue.vShow, isShow.value]
         ]);
       };
@@ -6297,7 +6443,7 @@
     return GM_addStyle(t), t;
   };
   cssLoader("ElementPlus");
-  const layoutCss = ".main-page {\n  --ink: #1a2421;\n  --muted: #5e6d66;\n  --paper: #f6f8f7;\n  --sheet: #ffffff;\n  --rule: #d5ded8;\n  --pine: #1a2421;\n  --clay: #9d3d32;\n  --brass: #8d5e16;\n  --el-color-primary: #1a2421;\n  --el-color-primary-light-3: #5c675f;\n  --el-color-primary-light-5: #8d9992;\n  --el-color-primary-light-7: #c5cec9;\n  --el-color-primary-light-8: #dde3df;\n  --el-color-primary-light-9: #f3f5f4;\n  --el-color-primary-dark-2: #101614;\n  --el-color-success: #1a2421;\n  --el-color-warning: #8d5e16;\n  --el-color-danger: #9d3d32;\n  --el-color-error: #9d3d32;\n  --el-color-info: #5e6d66;\n  --el-border-color: #d5ded8;\n  --el-border-color-light: #e3ebe6;\n  --el-border-color-lighter: #eef3f0;\n  --el-text-color-primary: #1a2421;\n  --el-text-color-regular: #24312c;\n  --el-text-color-secondary: #5e6d66;\n  --el-text-color-placeholder: #8a9891;\n  --el-fill-color-blank: #ffffff;\n  --el-bg-color: #f6f8f7;\n  --el-bg-color-overlay: #ffffff;\n  --el-border-radius-base: 8px;\n  --el-font-family: \"DengXian\", \"等线\", \"PingFang SC\", \"Microsoft YaHei UI\", sans-serif;\n  --app-font-family: var(--el-font-family);\n  box-sizing: border-box;\n  width: min(360px, calc(100vw - 16px));\n  z-index: 100003;\n  position: fixed;\n  color: var(--ink);\n  background: transparent;\n  font-family: var(--el-font-family);\n  font-size: 13px;\n  line-height: 1.5;\n  -webkit-font-smoothing: antialiased;\n  text-rendering: optimizeLegibility;\n}\n.main-page *,\n.main-page input,\n.main-page button,\n.main-page textarea,\n.main-page select {\n  font-family: var(--el-font-family);\n  letter-spacing: 0;\n}\n.main-page .el-card,\n.main-page .el-tabs,\n.main-page .el-text,\n.main-page .el-button,\n.main-page .el-input,\n.main-page .el-input__inner,\n.main-page .el-input-number,\n.main-page .el-checkbox {\n  font-family: var(--el-font-family);\n}\n.main-page .el-card {\n  position: relative;\n  isolation: isolate;\n  width: 100%;\n  border: 1px solid rgba(255, 255, 255, 0.62);\n  border-radius: 22px;\n  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08) 48%, rgba(255, 255, 255, 0.16));\n  box-shadow:\n    0 16px 40px rgba(18, 32, 28, 0.14),\n    inset 0 1px 0 rgba(255, 255, 255, 0.72);\n  -webkit-backdrop-filter: blur(8px) saturate(1.4);\n  backdrop-filter: blur(8px) saturate(1.4);\n  overflow: hidden;\n  color: var(--ink);\n}\n.main-page .el-card::after {\n  content: \"\";\n  position: absolute;\n  inset: 0;\n  z-index: 3;\n  border-radius: inherit;\n  pointer-events: none;\n  box-shadow:\n    inset 0 1px 0 rgba(255, 255, 255, 0.85),\n    inset 0 0 0 1px rgba(255, 255, 255, 0.28);\n}\n.main-page .el-card__header,\n.main-page .el-card__body {\n  position: relative;\n  z-index: 1;\n}\n.main-page .el-card__header {\n  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.04));\n  color: var(--ink);\n  border-bottom: 1px solid rgba(255, 255, 255, 0.38);\n  padding: 8px 10px 8px 12px;\n  margin: 0;\n}\n.main-page .el-card__body {\n  padding: 0 14px 14px;\n  max-height: calc(100dvh - 92px);\n  overflow: auto;\n  background: transparent;\n  scrollbar-width: thin;\n  scrollbar-color: #c5d2cb transparent;\n}\n@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {\n  .main-page .el-card {\n    background: rgba(246, 248, 247, 0.96);\n  }\n}\n.main-page .card-header {\n  display: flex;\n  justify-content: space-between;\n  align-items: center;\n  margin: 0;\n  padding: 0;\n  cursor: move;\n}\n.main-page .card-header .title {\n  display: flex;\n  align-items: center;\n  gap: 4px;\n  min-width: 0;\n  font-size: 14px;\n  font-weight: 600;\n  line-height: 1.4;\n}\n.main-page .card-header .title > span {\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n.main-page .warning-icon {\n  margin-left: 2px;\n  color: var(--brass);\n  cursor: help;\n}\n.main-page .zoom-icon {\n  cursor: pointer;\n  color: var(--muted);\n  padding: 4px;\n}\n.main-page .zoom-icon.is-spaced { margin-left: 2px; }\n.main-page .overlay {\n  position: fixed;\n  inset: 0;\n  z-index: 1001;\n  background: transparent;\n}\n.main-page .minus { margin: 4px 0 0; color: var(--muted); }\n.main-page .compact-divider { margin: 6px 0 0; }\n.main-page .card_content { width: 100%; }\n.main-page .demo-tabs { display: block; }\n.main-page .el-tabs__header { margin: 0 0 10px; }\n.main-page .el-tabs__nav-wrap:after { height: 1px; background-color: rgba(255, 255, 255, 0.42); }\n.main-page .el-tabs__active-bar { background-color: var(--pine); height: 2px; }\n.main-page .el-tabs__item {\n  height: 36px;\n  font-size: 13px;\n  font-weight: 400;\n  color: var(--muted);\n  padding: 0 10px;\n}\n.main-page .el-tabs__item.is-top { padding: 0 10px; }\n.main-page .el-tabs__item.is-active {\n  font-weight: 600;\n  color: var(--ink);\n}\n.main-page .el-tabs__item:focus-visible {\n  outline: 2px solid var(--pine);\n  outline-offset: -2px;\n  border-radius: 4px;\n}\n.main-page .ai-config {\n  display: grid;\n  gap: 10px;\n  margin: 2px 0 12px;\n}\n.main-page .ai-field { display: grid; gap: 4px; min-width: 0; }\n.main-page .ai-label {\n  color: var(--ink);\n  font-size: 12px;\n  font-weight: 600;\n  line-height: 1.4;\n}\n.main-page .ai-note {\n  margin: 0;\n  color: var(--muted);\n  font-size: 12px;\n  line-height: 1.55;\n}\n.main-page .ai-metrics {\n  display: grid;\n  grid-template-columns: 1fr 1fr;\n  gap: 10px;\n}\n.main-page .ai-provider-select {\n  width: 100%;\n  box-sizing: border-box;\n  height: 32px;\n  border: 1px solid var(--rule);\n  border-radius: 8px;\n  padding: 0 8px;\n  background: rgba(255, 255, 255, 0.78);\n  color: var(--ink);\n  font-size: 13px;\n}\n.main-page .ai-provider-select:focus-visible {\n  outline: 2px solid var(--pine);\n  outline-offset: 1px;\n}\n.main-page .el-input__wrapper,\n.main-page .el-textarea__inner {\n  background: rgba(255, 255, 255, 0.82);\n  border: 1px solid rgba(255, 255, 255, 0.7);\n  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);\n}\n.main-page .el-input__wrapper.is-focus,\n.main-page .el-textarea__inner:focus {\n  border-color: var(--pine);\n  box-shadow: none;\n}\n.main-page .ai-metrics .el-input-number { width: 100%; }\n.main-page .ai-save.el-button {\n  justify-self: start;\n  height: 32px;\n  margin-top: 2px;\n  padding: 0 14px;\n  border-radius: 8px;\n}\n.main-page .question-sheet { margin-top: 4px; }\n.main-page .answer-legend {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 4px 12px;\n  margin: 0 0 2px;\n  padding: 0;\n  color: var(--muted);\n  font-size: 11px;\n  line-height: 1.4;\n}\n.main-page .answer-legend > span {\n  display: inline-flex;\n  align-items: center;\n  gap: 5px;\n}\n.main-page .answer-legend > span:before {\n  content: \"\";\n  width: 6px;\n  height: 6px;\n  border-radius: 50%;\n  background: currentColor;\n}\n.main-page .question-slips {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n}\n.main-page .question-slip {\n  display: grid;\n  grid-template-columns: 18px minmax(0, 1fr);\n  gap: 8px;\n  padding: 9px 0 9px 8px;\n  border-top: 1px solid var(--rule);\n  border-left: 2px solid var(--rule);\n}\n.main-page .question-slip--success { border-left-color: var(--pine); }\n.main-page .question-slip--searching { border-left-color: var(--brass); }\n.main-page .question-slip--pending { border-left-color: var(--muted); }\n.main-page .question-slip--error { border-left-color: var(--clay); }\n.main-page .question-index {\n  color: var(--muted);\n  font-size: 12px;\n  font-variant-numeric: tabular-nums;\n  line-height: 1.5;\n}\n.main-page .question-stem {\n  display: block;\n  color: var(--ink);\n  font-size: 13px;\n  line-height: 1.5;\n  overflow-wrap: anywhere;\n}\n.main-page .answer-result {\n  margin-top: 4px;\n  font-size: 12px;\n  line-height: 1.55;\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n.main-page .answer-result--success { color: var(--pine); }\n.main-page .answer-result--searching { color: var(--brass); }\n.main-page .answer-result--pending { color: var(--muted); }\n.main-page .answer-result--error { color: var(--clay); }\n.main-page .question-empty {\n  margin: 8px 0 4px;\n  color: var(--muted);\n  font-size: 13px;\n}\n.main-page .setting { margin-top: 2px; font-size: 13px; }\n.main-page .setting .el-divider {\n  height: auto;\n  margin: 14px 0 6px;\n  border: 0;\n  background: transparent;\n}\n.main-page .setting .el-divider__text {\n  position: static;\n  transform: none;\n  padding: 0;\n  background: transparent;\n  color: var(--ink);\n  font-size: 12px;\n  font-weight: 600;\n}\n.main-page .setting-section-title { font-size: 12px; font-weight: 600; }\n.main-page .setting .el-checkbox {\n  display: flex;\n  width: 100%;\n  height: auto;\n  margin: 0 0 8px;\n  align-items: flex-start;\n  white-space: normal;\n}\n.main-page .setting .el-checkbox__label {\n  white-space: normal;\n  line-height: 1.45;\n  color: var(--ink);\n}\n.main-page .setting .el-form-item {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-start;\n  margin: 0 0 10px;\n}\n.main-page .setting .el-form-item__label {\n  height: auto;\n  justify-content: flex-start;\n  margin-bottom: 4px;\n  padding: 0;\n  color: var(--ink);\n  font-size: 12px;\n  line-height: 1.4;\n  white-space: normal;\n}\n.main-page .setting .el-input-number { width: 128px; }\n.main-page .script-home { padding-top: 2px; }\n.main-page .log .el-scrollbar__view > div {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 2px 8px;\n  padding: 7px 0;\n  border-bottom: 1px solid var(--rule);\n}\n.main-page .log-time {\n  color: var(--muted);\n  font-weight: 400;\n  font-variant-numeric: tabular-nums;\n}\n.main-page .log .el-text {\n  font-weight: 400;\n  line-height: 1.45;\n  white-space: normal;\n}\n.main-page .log-divider { display: none; }\n.main-page .log-action-link { color: var(--pine); cursor: pointer; text-decoration: none; }\n.main-page .announcement-board {\n  box-sizing: border-box;\n  margin: 0 0 10px;\n  padding: 8px 10px;\n  border: 1px solid var(--rule);\n  border-left: 2px solid var(--pine);\n  border-radius: 0;\n  background: var(--sheet);\n}\n.main-page .announcement-heading {\n  display: flex;\n  align-items: center;\n  margin-bottom: 4px;\n  color: var(--ink);\n  font-size: 12px;\n  font-weight: 600;\n  line-height: 1.4;\n}\n.main-page .announcement-list { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; }\n.main-page .announcement-item { color: var(--ink); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }\n.main-page .guide-page {\n  box-sizing: border-box;\n  max-height: min(520px, calc(100dvh - 170px));\n  overflow: auto;\n  padding: 2px 2px 8px 0;\n  color: var(--ink);\n  font-size: 13px;\n  line-height: 1.6;\n  scrollbar-width: thin;\n  scrollbar-color: #c5d2cb transparent;\n}\n.main-page .guide-page:focus-visible {\n  outline: 2px solid var(--pine);\n  outline-offset: 2px;\n}\n.main-page .guide-header {\n  margin: 0 0 12px;\n  padding: 0 0 10px;\n  border: 0;\n  border-bottom: 1px solid var(--rule);\n  border-radius: 0;\n  background: transparent;\n}\n.main-page .guide-heading-row {\n  display: flex;\n  align-items: baseline;\n  justify-content: space-between;\n  gap: 8px;\n}\n.main-page .guide-title {\n  margin: 0;\n  color: var(--ink);\n  font-size: 15px;\n  font-weight: 600;\n  line-height: 1.4;\n}\n.main-page .guide-tag { color: var(--muted); font-size: 12px; }\n.main-page .guide-subtitle { margin: 4px 0 0; color: var(--muted); font-size: 12px; }\n.main-page .guide-list {\n  display: grid;\n  gap: 14px;\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n.main-page .guide-card {\n  min-width: 0;\n  padding: 0;\n  border: 0;\n  border-radius: 0;\n  background: transparent;\n}\n.main-page .guide-card-heading {\n  display: flex;\n  align-items: baseline;\n  gap: 8px;\n  margin-bottom: 2px;\n}\n.main-page .guide-number {\n  display: inline;\n  width: auto;\n  height: auto;\n  padding: 0;\n  border-radius: 0;\n  background: transparent;\n  color: var(--pine);\n  font-size: 12px;\n  font-weight: 600;\n  font-variant-numeric: tabular-nums;\n  line-height: 1.5;\n}\n.main-page .guide-card-title {\n  margin: 0 0 2px;\n  color: var(--ink);\n  font-size: 13px;\n  font-weight: 600;\n  line-height: 1.5;\n}\n.main-page .guide-copy { margin: 0; color: #24312c; overflow-wrap: anywhere; }";
+  const layoutCss = ".main-page {\n  --ink: #1a2421;\n  --muted: #5e6d66;\n  --paper: #f6f8f7;\n  --sheet: #ffffff;\n  --rule: #d5ded8;\n  --pine: #1a2421;\n  --clay: #9d3d32;\n  --brass: #8d5e16;\n  --el-color-primary: #1a2421;\n  --el-color-primary-light-3: #5c675f;\n  --el-color-primary-light-5: #8d9992;\n  --el-color-primary-light-7: #c5cec9;\n  --el-color-primary-light-8: #dde3df;\n  --el-color-primary-light-9: #f3f5f4;\n  --el-color-primary-dark-2: #101614;\n  --el-color-success: #1a2421;\n  --el-color-warning: #8d5e16;\n  --el-color-danger: #9d3d32;\n  --el-color-error: #9d3d32;\n  --el-color-info: #5e6d66;\n  --el-border-color: #d5ded8;\n  --el-border-color-light: #e3ebe6;\n  --el-border-color-lighter: #eef3f0;\n  --el-text-color-primary: #1a2421;\n  --el-text-color-regular: #24312c;\n  --el-text-color-secondary: #5e6d66;\n  --el-text-color-placeholder: #8a9891;\n  --el-fill-color-blank: #ffffff;\n  --el-bg-color: #f6f8f7;\n  --el-bg-color-overlay: #ffffff;\n  --el-border-radius-base: 8px;\n  --el-font-family: \"DengXian\", \"等线\", \"PingFang SC\", \"Microsoft YaHei UI\", sans-serif;\n  --app-font-family: var(--el-font-family);\n  box-sizing: border-box;\n  width: min(396px, calc(100vw - 16px));\n  z-index: 100003;\n  position: fixed;\n  color: var(--ink);\n  background: transparent;\n  font-family: var(--el-font-family);\n  font-size: 13px;\n  line-height: 1.5;\n  -webkit-font-smoothing: antialiased;\n  text-rendering: optimizeLegibility;\n}\n.main-page *,\n.main-page input,\n.main-page button,\n.main-page textarea,\n.main-page select {\n  font-family: var(--el-font-family);\n  letter-spacing: 0;\n}\n.main-page .el-card,\n.main-page .el-tabs,\n.main-page .el-text,\n.main-page .el-button,\n.main-page .el-input,\n.main-page .el-input__inner,\n.main-page .el-input-number,\n.main-page .el-checkbox {\n  font-family: var(--el-font-family);\n}\n.main-page .el-card {\n  position: relative;\n  isolation: isolate;\n  width: 100%;\n  border: 1px solid rgba(255, 255, 255, 0.62);\n  border-radius: 22px;\n  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08) 48%, rgba(255, 255, 255, 0.16));\n  box-shadow:\n    0 16px 40px rgba(18, 32, 28, 0.14),\n    inset 0 1px 0 rgba(255, 255, 255, 0.72);\n  -webkit-backdrop-filter: blur(8px) saturate(1.4);\n  backdrop-filter: blur(8px) saturate(1.4);\n  overflow: hidden;\n  color: var(--ink);\n}\n.main-page .el-card::after {\n  content: \"\";\n  position: absolute;\n  inset: 0;\n  z-index: 3;\n  border-radius: inherit;\n  pointer-events: none;\n  box-shadow:\n    inset 0 1px 0 rgba(255, 255, 255, 0.85),\n    inset 0 0 0 1px rgba(255, 255, 255, 0.28);\n}\n.main-page .el-card__header,\n.main-page .el-card__body {\n  position: relative;\n  z-index: 1;\n}\n.main-page .el-card__header {\n  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.04));\n  color: var(--ink);\n  border-bottom: 1px solid rgba(255, 255, 255, 0.38);\n  padding: 8px 10px 8px 12px;\n  margin: 0;\n}\n.main-page .el-card__body {\n  padding: 0 14px 14px;\n  max-height: calc(100dvh - 92px);\n  overflow: auto;\n  background: transparent;\n  scrollbar-width: thin;\n  scrollbar-color: #c5d2cb transparent;\n}\n@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {\n  .main-page .el-card {\n    background: rgba(246, 248, 247, 0.96);\n  }\n}\n.main-page .card-header {\n  display: flex;\n  justify-content: space-between;\n  align-items: center;\n  margin: 0;\n  padding: 0;\n  cursor: move;\n}\n.main-page .card-header .title {\n  display: flex;\n  align-items: center;\n  gap: 4px;\n  min-width: 0;\n  font-size: 14px;\n  font-weight: 600;\n  line-height: 1.4;\n}\n.main-page .card-header .title > span {\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n.main-page .warning-icon {\n  margin-left: 2px;\n  color: var(--brass);\n  cursor: help;\n}\n.main-page .zoom-icon {\n  cursor: pointer;\n  color: var(--muted);\n  padding: 4px;\n}\n.main-page .zoom-icon.is-spaced { margin-left: 2px; }\n.main-page .overlay {\n  position: fixed;\n  inset: 0;\n  z-index: 1001;\n  background: transparent;\n}\n.main-page .minus { margin: 4px 0 0; color: var(--muted); }\n.main-page .compact-divider { margin: 6px 0 0; }\n.main-page .card_content { width: 100%; }\n.main-page .demo-tabs { display: block; }\n.main-page .el-tabs__header { margin: 0 0 10px; }\n.main-page .el-tabs__nav-wrap:after { height: 1px; background-color: rgba(255, 255, 255, 0.42); }\n.main-page .el-tabs__active-bar { background-color: var(--pine); height: 2px; }\n.main-page .el-tabs__item {\n  height: 36px;\n  font-size: 13px;\n  font-weight: 400;\n  color: var(--muted);\n  padding: 0 10px;\n}\n.main-page .el-tabs__item.is-top { padding: 0 10px; }\n.main-page .el-tabs__item.is-active {\n  font-weight: 600;\n  color: var(--ink);\n}\n.main-page .el-tabs__item:focus-visible {\n  outline: 2px solid var(--pine);\n  outline-offset: -2px;\n  border-radius: 4px;\n}\n.main-page .ai-config {\n  display: grid;\n  gap: 10px;\n  margin: 2px 0 12px;\n}\n.main-page .ai-field { display: grid; gap: 4px; min-width: 0; }\n.main-page .ai-label {\n  color: var(--ink);\n  font-size: 12px;\n  font-weight: 600;\n  line-height: 1.4;\n}\n.main-page .ai-note {\n  margin: 0;\n  color: var(--muted);\n  font-size: 12px;\n  line-height: 1.55;\n}\n.main-page .ai-metrics {\n  display: grid;\n  grid-template-columns: 1fr 1fr;\n  gap: 10px;\n}\n.main-page .ai-provider-select {\n  width: 100%;\n  box-sizing: border-box;\n  height: 32px;\n  border: 1px solid var(--rule);\n  border-radius: 8px;\n  padding: 0 8px;\n  background: rgba(255, 255, 255, 0.78);\n  color: var(--ink);\n  font-size: 13px;\n}\n.main-page .ai-provider-select:focus-visible {\n  outline: 2px solid var(--pine);\n  outline-offset: 1px;\n}\n.main-page .el-input__wrapper,\n.main-page .el-textarea__inner {\n  background: rgba(255, 255, 255, 0.82);\n  border: 1px solid rgba(255, 255, 255, 0.7);\n  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);\n}\n.main-page .el-input__wrapper.is-focus,\n.main-page .el-textarea__inner:focus {\n  border-color: var(--pine);\n  box-shadow: none;\n}\n.main-page .ai-metrics .el-input-number { width: 100%; }\n.main-page .ai-save.el-button {\n  justify-self: start;\n  height: 32px;\n  margin-top: 2px;\n  padding: 0 14px;\n  border-radius: 8px;\n}\n.main-page .question-sheet { margin-top: 4px; }\n.main-page .answer-legend {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 4px 12px;\n  margin: 0 0 2px;\n  padding: 0;\n  color: var(--muted);\n  font-size: 11px;\n  line-height: 1.4;\n}\n.main-page .answer-legend > span {\n  display: inline-flex;\n  align-items: center;\n  gap: 5px;\n}\n.main-page .answer-legend > span:before {\n  content: \"\";\n  width: 6px;\n  height: 6px;\n  border-radius: 50%;\n  background: currentColor;\n}\n.main-page .question-slips {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n}\n.main-page .question-slip {\n  display: grid;\n  grid-template-columns: 18px minmax(0, 1fr);\n  gap: 8px;\n  padding: 9px 0 9px 8px;\n  border-top: 1px solid var(--rule);\n  border-left: 2px solid var(--rule);\n}\n.main-page .question-slip--success { border-left-color: var(--pine); }\n.main-page .question-slip--searching { border-left-color: var(--brass); }\n.main-page .question-slip--pending { border-left-color: var(--muted); }\n.main-page .question-slip--error { border-left-color: var(--clay); }\n.main-page .question-index {\n  color: var(--muted);\n  font-size: 12px;\n  font-variant-numeric: tabular-nums;\n  line-height: 1.5;\n}\n.main-page .question-stem {\n  display: block;\n  color: var(--ink);\n  font-size: 13px;\n  line-height: 1.5;\n  overflow-wrap: anywhere;\n}\n.main-page .answer-result {\n  margin-top: 4px;\n  font-size: 12px;\n  line-height: 1.55;\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n.main-page .answer-result--success { color: var(--pine); }\n.main-page .answer-result--searching { color: var(--brass); }\n.main-page .answer-result--pending { color: var(--muted); }\n.main-page .answer-result--error { color: var(--clay); }\n.main-page .question-empty {\n  margin: 8px 0 4px;\n  color: var(--muted);\n  font-size: 13px;\n}\n.main-page .setting { margin-top: 2px; font-size: 13px; }\n.main-page .setting .el-divider {\n  height: auto;\n  margin: 14px 0 6px;\n  border: 0;\n  background: transparent;\n}\n.main-page .setting .el-divider__text {\n  position: static;\n  transform: none;\n  padding: 0;\n  background: transparent;\n  color: var(--ink);\n  font-size: 12px;\n  font-weight: 600;\n}\n.main-page .setting-section-title { font-size: 12px; font-weight: 600; }\n.main-page .setting .el-checkbox {\n  display: flex;\n  width: 100%;\n  height: auto;\n  margin: 0 0 8px;\n  align-items: flex-start;\n  white-space: normal;\n}\n.main-page .setting .el-checkbox__label {\n  white-space: normal;\n  line-height: 1.45;\n  color: var(--ink);\n}\n.main-page .setting .el-form-item {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-start;\n  margin: 0 0 10px;\n}\n.main-page .setting .el-form-item__label {\n  height: auto;\n  justify-content: flex-start;\n  margin-bottom: 4px;\n  padding: 0;\n  color: var(--ink);\n  font-size: 12px;\n  line-height: 1.4;\n  white-space: normal;\n}\n.main-page .setting .el-input-number { width: 128px; }\n.main-page .script-home { padding-top: 2px; }\n.main-page .log .el-scrollbar__view > div {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 2px 8px;\n  padding: 7px 0;\n  border-bottom: 1px solid var(--rule);\n}\n.main-page .log-time {\n  color: var(--muted);\n  font-weight: 400;\n  font-variant-numeric: tabular-nums;\n}\n.main-page .log .el-text {\n  font-weight: 400;\n  line-height: 1.45;\n  white-space: normal;\n}\n.main-page .log-divider { display: none; }\n.main-page .log-action-link { color: var(--pine); cursor: pointer; text-decoration: none; }\n.main-page .announcement-board {\n  box-sizing: border-box;\n  margin: 0 0 10px;\n  padding: 8px 10px;\n  border: 1px solid var(--rule);\n  border-left: 2px solid var(--pine);\n  border-radius: 0;\n  background: var(--sheet);\n}\n.main-page .announcement-heading {\n  display: flex;\n  align-items: center;\n  margin-bottom: 4px;\n  color: var(--ink);\n  font-size: 12px;\n  font-weight: 600;\n  line-height: 1.4;\n}\n.main-page .announcement-list { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; }\n.main-page .announcement-item { color: var(--ink); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }\n.main-page .guide-page {\n  box-sizing: border-box;\n  max-height: min(520px, calc(100dvh - 170px));\n  overflow: auto;\n  padding: 2px 2px 8px 0;\n  color: var(--ink);\n  font-size: 13px;\n  line-height: 1.6;\n  scrollbar-width: thin;\n  scrollbar-color: #c5d2cb transparent;\n}\n.main-page .guide-page:focus-visible {\n  outline: 2px solid var(--pine);\n  outline-offset: 2px;\n}\n.main-page .guide-header {\n  margin: 0 0 12px;\n  padding: 0 0 10px;\n  border: 0;\n  border-bottom: 1px solid var(--rule);\n  border-radius: 0;\n  background: transparent;\n}\n.main-page .guide-heading-row {\n  display: flex;\n  align-items: baseline;\n  justify-content: space-between;\n  gap: 8px;\n}\n.main-page .guide-title {\n  margin: 0;\n  color: var(--ink);\n  font-size: 15px;\n  font-weight: 600;\n  line-height: 1.4;\n}\n.main-page .guide-tag { color: var(--muted); font-size: 12px; }\n.main-page .guide-subtitle { margin: 4px 0 0; color: var(--muted); font-size: 12px; }\n.main-page .guide-list {\n  display: grid;\n  gap: 14px;\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n.main-page .guide-card {\n  min-width: 0;\n  padding: 0;\n  border: 0;\n  border-radius: 0;\n  background: transparent;\n}\n.main-page .guide-card-heading {\n  display: flex;\n  align-items: baseline;\n  gap: 8px;\n  margin-bottom: 2px;\n}\n.main-page .guide-number {\n  display: inline;\n  width: auto;\n  height: auto;\n  padding: 0;\n  border-radius: 0;\n  background: transparent;\n  color: var(--pine);\n  font-size: 12px;\n  font-weight: 600;\n  font-variant-numeric: tabular-nums;\n  line-height: 1.5;\n}\n.main-page .guide-card-title {\n  margin: 0 0 2px;\n  color: var(--ink);\n  font-size: 13px;\n  font-weight: 600;\n  line-height: 1.5;\n}\n.main-page .guide-copy { margin: 0; color: #24312c; overflow-wrap: anywhere; }";
   const BOOTSTRAP_INTERVAL = 100;
   const COMPLETE_READY_STATE = "complete";
   const ELEMENT_PLUS_STYLE_RESOURCE = "ElementPlusStyle";
@@ -6306,12 +6452,7 @@
     hookWebpack();
     hookError();
   }
-  const aiModelConfigCss = `.main-page .el-card__body { box-sizing: border-box; max-height: max(0px, calc(100dvh - var(--ai-panel-top, 32px) - 44px)); }
-.main-page .ai-url-status { overflow-wrap: anywhere; word-break: break-word; }
-.main-page .ai-model-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
-.main-page .ai-model-row .ai-fetch-models { height: 32px; margin: 0; }
-.main-page .ai-model-status { overflow-wrap: anywhere; }
-.main-page .ai-model-error { color: var(--clay); }`;
+  const aiModelConfigCss = `/* @ai-helper:UI_STYLES@ */`;
   const createStyleSheet = (cssText) => {
     const sheet = new CSSStyleSheet();
     sheet.replaceSync(cssText);
@@ -6333,6 +6474,7 @@
     const root = mountNode.getRootNode();
     const safariOnly = /Safari/.test(navigator.userAgent) && !/Chrome|Chromium|Edg/.test(navigator.userAgent);
     if (safariOnly || !CSS.supports("backdrop-filter", "url(#lg)") || !root || typeof root.appendChild !== "function") return;
+    if (window.matchMedia?.("(prefers-reduced-transparency: reduce)").matches) return;
     const svgNS = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(svgNS, "svg");
     svg.setAttribute("width", "0");
@@ -6389,6 +6531,7 @@
       canvas.width = width;
       canvas.height = height;
       const context = canvas.getContext("2d");
+      if (!context) throw new Error("Glass canvas unavailable");
       const horizontal = context.createLinearGradient(0, 0, width, 0);
       horizontal.addColorStop(0, "rgb(0,0,0)");
       horizontal.addColorStop(1, "rgb(255,0,0)");
@@ -6413,29 +6556,44 @@
     };
     let watched = null;
     let timer = 0;
+    let observer = null;
+    let lastSize = "";
     const apply = (card) => {
+      if (!card.isConnected) return;
       const width = Math.round(card.offsetWidth);
       const height = Math.round(card.offsetHeight);
       if (width < 40 || height < 40) return;
       const radius = parseFloat(getComputedStyle(card).borderTopLeftRadius) || 22;
-      feImage.setAttribute("href", makeMap(width, height, radius));
-      feImage.setAttribute("width", String(width));
-      feImage.setAttribute("height", String(height));
-      const value = "url(#course-helper-glass) blur(2px) saturate(1.5)";
-      card.style.webkitBackdropFilter = value;
-      card.style.backdropFilter = value;
+      const size = width + ":" + height + ":" + radius;
+      if (size === lastSize) return;
+      try {
+        feImage.setAttribute("href", makeMap(width, height, radius));
+        feImage.setAttribute("width", String(width));
+        feImage.setAttribute("height", String(height));
+        // Only the decorative rim refracts. The shell keeps its standard blur
+        // even when a browser accepts SVG filter syntax but cannot render it.
+        card.style.setProperty("--ai-glass-edge-filter", "url(#course-helper-glass) blur(2px) saturate(1.25)");
+        lastSize = size;
+      } catch (_) {
+        card.style.removeProperty("--ai-glass-edge-filter");
+      }
     };
     const watch = (card) => {
       if (watched === card) return;
+      observer?.disconnect();
+      clearTimeout(timer);
+      lastSize = "";
       watched = card;
       apply(card);
-      const observer = new ResizeObserver(() => {
+      if (typeof ResizeObserver !== "function") return;
+      observer = new ResizeObserver(() => {
         clearTimeout(timer);
         timer = setTimeout(() => apply(card), 80);
       });
       observer.observe(card);
     };
     const find = () => {
+      if (watched?.isConnected) return;
       const card = root.querySelector(".el-card");
       if (card) watch(card);
     };
