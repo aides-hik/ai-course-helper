@@ -1,0 +1,125 @@
+[
+  {
+    "file": "vue.runtime.global.prod.js",
+    "package": "vue",
+    "version": "3.4.31",
+    "source": "https://registry.npmjs.org/vue/-/vue-3.4.31.tgz",
+    "member": "package/dist/vue.runtime.global.prod.js",
+    "sha256": "f442e6db19428aba465a8ac8548a9b2f8992160332505ca802c98fc0f38af251"
+  },
+  {
+    "file": "LICENSE-vue-3.4.31.txt",
+    "package": "vue",
+    "version": "3.4.31",
+    "source": "https://registry.npmjs.org/vue/-/vue-3.4.31.tgz",
+    "member": "package/LICENSE",
+    "sha256": "1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175"
+  },
+  {
+    "file": "vue-demi.js",
+    "package": "vue-demi",
+    "version": "0.14.7",
+    "source": "https://registry.npmjs.org/vue-demi/-/vue-demi-0.14.7.tgz",
+    "member": "package/lib/index.iife.js",
+    "sha256": "1fed4e916179652f137424f07fefd9ed0271d060424bdb86ca0d3209f4ad0101"
+  },
+  {
+    "file": "LICENSE-vue-demi-0.14.7.txt",
+    "package": "vue-demi",
+    "version": "0.14.7",
+    "source": "https://registry.npmjs.org/vue-demi/-/vue-demi-0.14.7.tgz",
+    "member": "package/LICENSE",
+    "sha256": "25b0ff5a880f9304341ba3ea38842972351256f5fe1dded3395ba1b464a8ca4e"
+  },
+  {
+    "file": "LICENSE-element-plus-2.7.2.txt",
+    "package": "element-plus",
+    "version": "2.7.2",
+    "source": "https://raw.githubusercontent.com/element-plus/element-plus/2.7.2/LICENSE",
+    "sha256": "0790118bb4d66681db1d63181f72ef68e632d632f6db0373ef87cf328561af27"
+  },
+  {
+    "file": "element-plus.js",
+    "package": "element-plus",
+    "version": "2.7.2",
+    "source": "https://registry.npmjs.org/element-plus/-/element-plus-2.7.2.tgz",
+    "member": "package/dist/index.full.min.js",
+    "sha256": "921310ed3da7c6b9a2cccf33bed689b1e41f1cda6a0aa857d690970187ce1814"
+  },
+  {
+    "file": "element-plus.css",
+    "package": "element-plus",
+    "version": "2.7.2",
+    "source": "https://registry.npmjs.org/element-plus/-/element-plus-2.7.2.tgz",
+    "member": "package/dist/index.css",
+    "sha256": "f9223ed5c9eac367c435379d011d9e9c88ac46786ff62df0e884d42e42aa3ae4"
+  },
+  {
+    "file": "LICENSE-element-plus-2.8.2.txt",
+    "package": "element-plus",
+    "version": "2.8.2",
+    "source": "https://raw.githubusercontent.com/element-plus/element-plus/2.8.2/LICENSE",
+    "sha256": "0790118bb4d66681db1d63181f72ef68e632d632f6db0373ef87cf328561af27"
+  },
+  {
+    "file": "element-plus-shadow.css",
+    "package": "element-plus",
+    "version": "2.8.2",
+    "source": "https://registry.npmjs.org/element-plus/-/element-plus-2.8.2.tgz",
+    "member": "package/dist/index.css",
+    "sha256": "dcc22fa6dbc2cc3d34ebaf14969358a4bca2b321f59d9acb0866014f4a19cc4a"
+  },
+  {
+    "file": "pinia.js",
+    "package": "pinia",
+    "version": "2.3.1",
+    "source": "https://registry.npmjs.org/pinia/-/pinia-2.3.1.tgz",
+    "member": "package/dist/pinia.iife.prod.js",
+    "sha256": "85e3fb01e1e859f35dda7b1c9c4e5844fe5f0554a7f04e7a4b5f08cdfe87b1f9"
+  },
+  {
+    "file": "LICENSE-pinia-2.3.1.txt",
+    "package": "pinia",
+    "version": "2.3.1",
+    "source": "https://registry.npmjs.org/pinia/-/pinia-2.3.1.tgz",
+    "member": "package/LICENSE",
+    "sha256": "91a2845c4db44e7497b514b98634a674c737986ad0db81599307cf733bf850b2"
+  },
+  {
+    "file": "rxjs.js",
+    "package": "rxjs",
+    "version": "7.8.2",
+    "source": "https://registry.npmjs.org/rxjs/-/rxjs-7.8.2.tgz",
+    "member": "package/dist/bundles/rxjs.umd.min.js",
+    "sha256": "2152e8a794982170a4c1dae32a74e31a81218fd74781c27b0d628a02bf532413"
+  },
+  {
+    "file": "LICENSE-rxjs-7.8.2.txt",
+    "package": "rxjs",
+    "version": "7.8.2",
+    "source": "https://registry.npmjs.org/rxjs/-/rxjs-7.8.2.tgz",
+    "member": "package/LICENSE.txt",
+    "sha256": "81c407ac717813b0e3795402960e04003c7bba8ba59b621624707028531c9ade"
+  },
+  {
+    "file": "md5.js",
+    "package": "blueimp-md5",
+    "version": "2.19.0",
+    "source": "https://registry.npmjs.org/blueimp-md5/-/blueimp-md5-2.19.0.tgz",
+    "member": "package/js/md5.min.js",
+    "sha256": "64d7ded388c562e4bde9e58ce205e5fa01b9734fcd434d496eb7b4fbfe9b927d"
+  },
+  {
+    "file": "LICENSE-blueimp-md5-2.19.0.txt",
+    "package": "blueimp-md5",
+    "version": "2.19.0",
+    "source": "https://registry.npmjs.org/blueimp-md5/-/blueimp-md5-2.19.0.tgz",
+    "member": "package/LICENSE.txt",
+    "sha256": "ce2ef2581ac80c09ea7025ce0eca7995b1cdc631cd0daaffce3a1353bc2143f8"
+  },
+  {
+    "file": "font-table.json",
+    "source": "https://www.forestpolice.org/ttf/2.0/table.json",
+    "sha256": "fbc6ae3c795a46ca2bd0994e68e7cb90ca4d9a046f335512657760d9a4fdf875"
+  }
+]

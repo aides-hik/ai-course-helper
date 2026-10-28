@@ -1,0 +1,664 @@
+✔ single choice maps the model index to the original option and uses Responses structured output (13.6711ms)
+✔ multiple choice preserves all selected original option texts (3.033ms)
+✔ false judgement becomes 错 for the existing page handler (3.8425ms)
+✔ fill blanks returns one answer per field (4.6533ms)
+✔ short answer maps to the original result shape (8.1149ms)
+✔ rejects out of range index (1.5123ms)
+✔ rejects negative index (4.7137ms)
+✔ rejects fractional index (2.338ms)
+✔ rejects duplicate index (1.9835ms)
+✔ rejects multiple selections for a single choice (2.5298ms)
+✔ rejects empty selections (2.1141ms)
+✔ rejects model reports uncertainty (2.2546ms)
+✔ rejects incorrect field type (3.5879ms)
+✔ rejects unknown judgement instead of guessing true (2.7069ms)
+✔ rejects incomplete fill blank answers (2.3625ms)
+✔ handles HTTP 401 without leaking the API key (3.4284ms)
+✔ handles HTTP 429 without leaking the API key (2.2709ms)
+✔ handles HTTP 500 without leaking the API key (2.017ms)
+✔ handles timeout (1.6306ms)
+✔ handles network-error (4.6763ms)
+✔ handles non JSON HTTP response (2.6615ms)
+✔ handles malformed model JSON (3.4172ms)
+✔ detects model refusal (2.2354ms)
+✔ does not accept an incomplete response even if its text looks usable (2.2644ms)
+✔ rejects empty API key before making a request (2.1231ms)
+✔ rejects empty model before making a request (2.0074ms)
+✔ rejects empty question stem before making a request (3.6799ms)
+✔ rejects image question before making a request (1.3315ms)
+✔ rejects unknown question type before making a request (1.4658ms)
+✔ falls back to the title when searchText stem is empty (3.8336ms)
+✔ preserves extracted mathematical text and decodes fallback HTML options (2.576ms)
+✔ keeps fallback HTML title for exact response matching while cleaning only model input (3.194ms)
+✔ a cancelled or stale call never sends a request (2.4104ms)
+✔ cancellation aborts an in flight request and ignores a late success callback (37.1847ms)
+✔ a response for a stale page is discarded (5.4606ms)
+✔ concurrent calls use one request at a time and cancel queued stale work (7.6395ms)
+✔ DeepSeek sends its own key and model to Chat Completions with JSON mode (4.7092ms)
+✔ DeepSeek uses its default model when none is configured (2.666ms)
+✔ DeepSeek maps multiple choice through the existing answer adapter (3.1142ms)
+✔ DeepSeek maps true judgement through the existing answer adapter (2.2074ms)
+✔ DeepSeek maps false judgement through the existing answer adapter (1.5951ms)
+✔ DeepSeek maps fill blanks through the existing answer adapter (1.6112ms)
+✔ DeepSeek maps short answer through the existing answer adapter (1.3842ms)
+✔ DeepSeek rejects finish_reason length even with usable content (1.6803ms)
+✔ DeepSeek rejects finish_reason content_filter even with usable content (1.9855ms)
+✔ DeepSeek rejects finish_reason tool_calls even with usable content (1.8789ms)
+✔ DeepSeek rejects finish_reason aborted even with usable content (3.3884ms)
+✔ DeepSeek rejects finish_reason null even with usable content (2.1584ms)
+✔ DeepSeek rejects missing choices (4.136ms)
+✔ DeepSeek rejects empty choices (1.5594ms)
+✔ DeepSeek rejects null message (2.619ms)
+✔ DeepSeek rejects empty content (3.773ms)
+✔ DeepSeek rejects null content (2.118ms)
+✔ DeepSeek rejects array content (2.2917ms)
+✔ DeepSeek rejects malformed content (2.1872ms)
+✔ DeepSeek rejects reasoning without final answer (1.9625ms)
+✔ DeepSeek ignores reasoning_content and uses only the final message content (1.9496ms)
+✔ DeepSeek validates out of range selection (1.7594ms)
+✔ DeepSeek validates duplicate selection (2.4041ms)
+✔ DeepSeek validates unknown schema field (3.8329ms)
+✔ DeepSeek validates wrong schema type (2.6278ms)
+✔ DeepSeek validates unanswerable model result (4.6594ms)
+✔ DeepSeek handles HTTP 401 without exposing either provider key (6.9576ms)
+✔ DeepSeek handles HTTP 429 without exposing either provider key (2.6295ms)
+✔ DeepSeek never falls back to the OpenAI key when its own key is missing (11.6339ms)
+✔ OpenAI never falls back to the DeepSeek key when its own key is missing (2.8833ms)
+✔ OpenAI explicitly selected still sends only its own key to its own endpoint (2.483ms)
+✔ an unknown provider fails before any network request (2.7315ms)
+✔ active and queued work become stale when provider changes (236.9546ms)
+✔ active and queued work become stale when OpenAI key changes (3.8303ms)
+✔ active and queued work become stale when OpenAI model changes (5.3592ms)
+✔ active and queued work become stale when DeepSeek key changes (3.0041ms)
+✔ active and queued work become stale when DeepSeek model changes (3.0816ms)
+✔ a provider switch actively aborts a silent old request and releases the queue for the new provider (3.1449ms)
+✔ clears the lifecycle timer after onerror (5.6331ms)
+✔ clears the lifecycle timer after ontimeout (2.487ms)
+✔ clears the lifecycle timer after onabort (3.5686ms)
+✔ plain DOM text keeps inequalities and literal HTML names while extracted options map to raw page text (2.5636ms)
+✔ inherited type name toString is rejected before sending a request (2.1239ms)
+✔ inherited type name constructor is rejected before sending a request (1.82ms)
+✔ inherited type name __proto__ is rejected before sending a request (1.3779ms)
+✔ Chaoxing native text inputs are counted and answered as fill blanks (2.6041ms)
+✔ shared answer fields exclude disabled readonly hidden and hidden ancestor controls (1.4414ms)
+✔ inherited disabled controls are rejected while the enabled first-legend control is preserved (1.5888ms)
+✔ UEditor lookup and answer-field enumeration reject the same inherited disabled source (2.248ms)
+✔ real svg stem markers reject a question before requesting a model (3.367ms)
+✔ real svg option markers reject a question before requesting a model (2.0617ms)
+✔ real canvas stem markers reject a question before requesting a model (2.8235ms)
+✔ real canvas option markers reject a question before requesting a model (1.9586ms)
+✔ real video stem markers reject a question before requesting a model (3.976ms)
+✔ real video option markers reject a question before requesting a model (1.5863ms)
+✔ real audio stem markers reject a question before requesting a model (1.4255ms)
+✔ real audio option markers reject a question before requesting a model (2.1218ms)
+✔ real object stem markers reject a question before requesting a model (1.3972ms)
+✔ real object option markers reject a question before requesting a model (1.2635ms)
+✔ real embed stem markers reject a question before requesting a model (1.2906ms)
+✔ real embed option markers reject a question before requesting a model (1.4132ms)
+✔ real iframe stem markers reject a question before requesting a model (1.2538ms)
+✔ real iframe option markers reject a question before requesting a model (1.1541ms)
+✔ real math stem markers reject a question before requesting a model (1.1098ms)
+✔ real math option markers reject a question before requesting a model (1.2648ms)
+✔ plain literal svg and canvas tag names remain ordinary model input (1.4465ms)
+✔ shared fields preserve only a ready existing visible editor source and deduplicate its editable body (1.8881ms)
+✔ hidden source without an existing editor does not create one or count as a fill blank (2.8267ms)
+✔ AbortSignal cancels a long pre-request interval immediately and releases the queue (13.0768ms)
+✔ configuration changes cancel a long pre-request interval at the next short check (5.0595ms)
+✔ the installable artifact contains every tested source module without drift (13.107ms)
+✔ a clean source-only directory builds the identical userscript without the original attachment (683.435ms)
+✔ a finished sibling task icon confirms its own video without an ancestor completion class (62.7307ms)
+✔ a completed task icon never completes a neighboring unfinished task (2.4907ms)
+✔ a finished video ignores its own blank helper iframe (3.0353ms)
+✔ a finished video ignores its own inaccessible helper iframe (2.4617ms)
+✔ the platform completion marker is sufficient when the finished video document is inaccessible or still loading (7.2321ms)
+✔ an unrelated unloaded chapter container still prevents advance beside a completed video (7.9338ms)
+✔ media ended alone does not confirm a task whose platform marker remains unfinished (3.5387ms)
+✔ removing a completion marker immediately blocks subsequent chapter checks (2.6741ms)
+✔ revoking completion during the chapter delay prevents navigation (11.204ms)
+✔ diagnostics explain an ended video without a platform completion marker and identify its icon ownership (4.6835ms)
+✔ diagnostics retain useful route names while omitting URL credentials, query values, fragments and executable payloads (4.5827ms)
+✔ playback progress does not flood diagnostics at 500ms, the same state refreshes at 30s, and marker changes log immediately (32.4175ms)
+✔ diagnostics identify a disabled automatic chapter switch separately from incomplete tasks (3.1459ms)
+✔ diagnostics report unavailable navigation only when both modern and legacy controls are unavailable (7.9954ms)
+✔ large task trees log at most 20 frame rows and show blocked tasks before completed tasks (4.9575ms)
+✔ the reported completed chapter video advances despite five unrelated outer blank helper frames (5.9973ms)
+✔ an outer editor or blank helper appearing first does not become the chapter root (12.4253ms)
+✔ blank containers inside the chapter remain blockers even when outer blank helpers are excluded (3.724ms)
+✔ a second explicit chapter cards frame that has not loaded prevents advancing an old completed chapter (6.1149ms)
+✔ outer blank helper changes during the jump delay do not invalidate the chapter snapshot (4.4118ms)
+✔ the reported visible next-section button works while the legacy next-chapter button is hidden (4.1248ms)
+✔ when both controls are visible the next-section route is selected without a second legacy click (7.2936ms)
+✔ a visible legacy next-chapter button remains usable without an available next-section control (18.349ms)
+✔ a modern control replaced or hidden during the delay cannot redirect the pending navigation to another route (15.8251ms)
+✔ modern next-section navigation still stops when automatic navigation is disabled during its delay (3.5381ms)
+✔ modern next-section navigation still waits for all tasks to remain complete (7.4146ms)
+✔ a reused next-section button cannot change its destination or handler while navigation is waiting (20.096ms)
+✔ a disabled ancestor prevents using the modern route and allows only a separately available legacy route (22.6145ms)
+✔ duplicate available modern controls block ambiguous navigation while a hidden duplicate does not (11.5724ms)
+✔ R07: nested tasks added after the root document loads are discovered without changing the root (22.5856ms)
+✔ R07: later accessible nested documents are rescanned and in-flight scans do not overlap (9.6927ms)
+✔ R08: zero-answer save-only tasks never become completed or advance a chapter (9.9054ms)
+✔ R08: issuing submit calls alone is insufficient to mark the work complete (5.1663ms)
+✔ a platform completion marker permits one advance after the task tree settles (4.4557ms)
+✔ a new unfinished task appearing during the navigation delay prevents advance (4.8934ms)
+✔ empty task lists and inaccessible unfinished tasks cannot prove completion (4.1403ms)
+✔ a slow nested container blocks navigation even when all currently visible task markers are finished (4.6818ms)
+✔ attempt deduplication records saved state separately and allows retry after a question identity change (3.1926ms)
+✔ a document that had no actionable task is eligible again after controls appear (2.2748ms)
+✔ a cancelled solve performs neither save nor submission (5.923ms)
+✔ platform save failures do not repeat paid inference on every scan (3.8527ms)
+✔ V02: an answer cleared during the submit delay prevents final confirmation without repeated inference (3.4613ms)
+✔ V05: disabling navigation during the delay cancels it and allows a later deliberate re-enable (4.9316ms)
+✔ R01: zero, partial, cancelled, stale and unverified exam solves cannot navigate (7.1212ms)
+✔ R01: a page change or disabling navigation during the delay prevents all exam navigation (3.239ms)
+✔ a fully filled, current exam question uses exactly one next action (2.1739ms)
+✔ concurrency switch defaults to serial; enabled values clamp to 1..2500 with a default of 3 (5.9143ms)
+✔ 12 requests actually overlap across callers, share the cap and cancel active and queued work (20.7189ms)
+✔ 20 requests actually overlap across callers, share the cap and cancel active and queued work (13.271ms)
+✔ one shared queue caps all callers and returns out-of-order responses to the correct question (6.4344ms)
+✔ queued AbortSignal cancellation resolves before occupied requests and never sends a request (3.1971ms)
+✔ occupied request checks promptly discard stale queued work without an extra queue timer (3.5014ms)
+✔ active abort releases a slot even if transport abort throws, and late callbacks cannot release it twice (7.8281ms)
+✔ changing provider cancels waiting snapshots and aborts active requests before scheduling new-provider work (6.1434ms)
+✔ reducing concurrency leaves active requests intact; later dispatches observe the lower limit (4.4921ms)
+✔ increasing the limit allows queued work to start on the next lifecycle check (6.7321ms)
+✔ pre-request delays occupy bounded slots and remain immediately cancellable (3.5339ms)
+✔ HTTP limits, errors and invalid local questions release slots without retries (6.2539ms)
+✔ real adapter and solver overlap requests to the cap, map out-of-order answers and serialize page fills (749.6118ms)
+✔ already completed choice and text answers skip the actual transport while pending questions still complete (134.1065ms)
+✔ a limit of 2500 starts only the six unanswered questions among eight without empty work (763.5799ms)
+✔ a limit of 2500 creates no model request or fill when every question is already answered (11.3417ms)
+✔ a limit of 2500 still aborts every started remaining request without later work (61.9746ms)
+✔ cancelling a complete batch aborts overlapping requests and prevents any later paid request or fill (61.3349ms)
+✔ two solver batches share the actual adapter cap and cancellation also removes their waiting requests (47.2264ms)
+✔ existing complete choices and text are skipped, remaining blanks are solved (19.7631ms)
+✔ partly filled multiple blanks still require a complete model answer (8.0195ms)
+✔ skipped answers retain a verification receipt while other requests run (5.8339ms)
+✔ all already answered questions complete without a model request (1.8322ms)
+✔ answers completed manually during a model request are preserved (3.3525ms)
+✔ changing one question cancels active siblings before any answer is written (266.1689ms)
+✔ synchronous transport callbacks settle the bounded queue without leaked slots or timers (39.4599ms)
+✔ bounded requests overlap, out-of-order replies stay on their own row, and writes stay serial (41.4389ms)
+✔ fill promises are included in solve completion even after every reply has arrived (8.4246ms)
+✔ disabling concurrent mode keeps one request active and retains the serial overwrite behavior (5.9636ms)
+✔ legacy harnesses without the concurrency helper fall back to serial requests (5.1048ms)
+✔ one rejected model request does not stop valid siblings or leak an unhandled rejection (8.9862ms)
+✔ parent cancellation settles even non-cooperative requests and consumes their late rejection (11.2179ms)
+✔ a title change cancels all active siblings and drops queued fills before they start (6.5047ms)
+✔ a question filled while waiting for its worker is skipped before any model request (5.5756ms)
+✔ partial manual changes during inference are preserved without being counted complete (3.4022ms)
+✔ a manually completed answer is retained even after model unusable (4.1472ms)
+✔ a manually completed answer is retained even after model rejection (2.6653ms)
+✔ existing-answer receipts ignore panel edits and detect any later page value change (2.3187ms)
+✔ disabled answer controls cannot make a partially available question count as already answered (2.4308ms)
+✔ readOnly answer controls cannot make a partially available question count as already answered (2.1536ms)
+✔ hidden answer controls cannot make a partially available question count as already answered (2.4306ms)
+✔ rich-editor existing answers require matching visible and editor text and remain live (2.9312ms)
+✔ Wisdom Tree multiple questions use concurrency and navigate exactly once after every fill (17.1329ms)
+✔ Wisdom Tree navigation rechecks existing answers after the batch delay (3.5614ms)
+✔ a limit of 2500 starts all twelve remaining questions together and preserves existing answers (109.8977ms)
+✔ a limit of 2500 creates zero workers when every question already has an answer (16.3197ms)
+✔ V04: an old tab changing its menu cannot overwrite another tab credentials even without listeners (10.8738ms)
+✔ V04: remote credential and automation changes update existing tabs without an echo write (5.457ms)
+✔ pending local edits survive a remote update and win when explicitly saved (9.7264ms)
+✔ independent provider fields, named settings and view state survive alternating stale writes (5.1847ms)
+✔ malformed or incorrectly typed field values do not enable automation or replace credentials (3.1818ms)
+✔ disposing synchronization removes the instance listeners (2.3348ms)
+✔ missing, empty and explicit official URLs retain the original endpoint and transport options (30.5494ms)
+✔ configured normalized URLs receive the selected provider protocol and its own credential (8.8049ms)
+✔ HTTP endpoints, ports and custom paths are accepted with redirect forwarding disabled (8.0805ms)
+✔ invalid selected URLs fail before paid requests or image collection without echoing the URL (22.856ms)
+✔ provider request URLs remain independent even when the unused setting is invalid (3.274ms)
+✔ changing the selected request URL cancels active and queued jobs and new jobs capture the replacement (16.5883ms)
+✔ canonical equivalent URL edits do not cancel active or queued requests (4.7154ms)
+✔ other-provider URL and models-only edits do not cancel current answer requests (5.2072ms)
+✔ unknown request paths or invalid models URLs do not prevent answering (6.5044ms)
+✔ URL changes while images load cancel the collector before an answer request is sent (7.9204ms)
+✔ custom URLs retain multimodal and reasoning request bodies without protocol conversion (11.0561ms)
+✔ custom URL HTTP failures and redirect responses remain isolated and do not trigger retries (22.3743ms)
+✔ missing and empty request settings retain each provider official endpoints (3.2095ms)
+✔ custom request prefixes and query parameters also apply to automatic model listing (1.4415ms)
+✔ complete local HTTP URLs and IPv6 are supported (0.8577ms)
+✔ explicit model-list URL takes precedence without altering answer routing (2.4317ms)
+✔ an unknown inference route requires only a manual model-list address (0.4679ms)
+✔ provider address fields remain independent (0.2522ms)
+✔ unsafe or malformed inference addresses fail locally without echoing input (0.6028ms)
+✔ invalid explicit models address leaves inference valid and refuses listing (0.259ms)
+✔ only a complete endpoint is accepted, with no silent suffix guessing for inference (0.2999ms)
+✔ extension storage preserves newer cached edits when an earlier write echoes back (11.2382ms)
+✔ save barrier includes writes queued while an earlier write is still pending (3.7582ms)
+✔ an earlier remote change does not replace a local write waiting to commit (4.6426ms)
+✔ failed configuration writes reject the save barrier and can be retried (5.3412ms)
+✔ request cancelled during network startup never starts a remote request (4.1401ms)
+✔ requests reuse the native port, route responses by id, and cancel on BFCache entry (3.4473ms)
+✔ MV3 manifest loads packaged runtime dependencies and keeps privileged application isolated (16.1919ms)
+✔ source-only offline rebuild reproduces the identical extension archive (1916.5557ms)
+✔ network policy permits only actual top-level course content-script senders (9.1978ms)
+✔ network policy honors independently stored provider endpoints and key (2.522ms)
+✔ legacy config is read but a valid per-field value wins (0.7636ms)
+✔ network policy rejects redirects to other endpoints, URL credentials and foreign headers (0.8093ms)
+✔ network policy rejects invalid or oversized payloads and clamps transport timeouts (180.388ms)
+✔ network Worker omits cookies, blocks redirects and reads a bounded streamed response (69.426ms)
+✔ network Worker refuses excessive content length and excessive chunked responses (9.6766ms)
+✔ network Worker produces distinct timeout and explicit abort outcomes without credential-bearing errors (9.5154ms)
+✔ network Worker rejects an unexpected redirected response instead of forwarding it (4.0966ms)
+✔ offscreen document rejects foreign ports before creating a network Worker (3.4456ms)
+✔ offscreen validates every request and isolates equal request ids from different tabs (6.267ms)
+✔ offscreen cancels pending validation, active fetches and disconnected tabs (31.796ms)
+✔ offscreen does not reuse worker ids when a caller repeats a cancelled external id (30.8371ms)
+✔ offscreen explicitly cancels active work before locally disconnecting a duplicate-id client (3.7145ms)
+✔ offscreen returns policy failures and reports worker crashes before allowing a fresh Worker (42.774ms)
+✔ background only accepts network validation from its own offscreen document and deduplicates creation (15.1ms)
+✔ page bridge waits for acknowledged save promises and never invokes arbitrary page methods (20.0803ms)
+✔ editor bridge preserves facade identity and rejects an editor replaced during filling (5.7825ms)
+✔ ambiguous editors and duplicated element references are rejected (6.7762ms)
+✔ same-origin nested editor iframe bodies resolve and stale frame documents cannot be reused (4.1845ms)
+✔ hidden rendered question content is read afresh and never requested on ordinary pages (3.7265ms)
+✔ next question and book operations have fixed arguments and no arbitrary return serialization (4.1824ms)
+✔ XHR bridge cancels for BFCache, resumes once and detaches on disposal (6.5293ms)
+✔ numeric version comparison handles Chrome version boundaries and rejects malformed versions (9.2639ms)
+✔ release validation accepts only the precise repository, stable tag and uploaded ZIP (2.5095ms)
+✔ update check fetches public release metadata anonymously and touches only its own storage key (70.0256ms)
+✔ manual checks are throttled, scheduled checks are six-hourly, and concurrent checks share one request (18.0404ms)
+✔ current and older releases do not advertise an install and reset the toolbar badge (8.6633ms)
+✔ an unpublished repository and an incomplete release have distinct honest states (4.8016ms)
+✔ a failed check retains previously validated release information without claiming a successful check (4.2079ms)
+✔ malicious cached URLs cannot open tabs or leak credentials and only the popup can request checks (5.3145ms)
+✔ response limits, HTTP failures and redirects yield fixed safe error codes (20.8261ms)
+✔ install/startup establish an alarm and scheduled wakeups honor the cached check time (11.5551ms)
+✔ the fifteen-second deadline aborts metadata transport and returns a fixed timeout code (3.1129ms)
+✔ OpenAI sends an image-only stem and labelled option images as ordered Responses content (18.5142ms)
+✔ DeepSeek flash uses image_url content with its own credential and JSON output mode (4.57ms)
+✔ deepseek-v4-pro rejects images before reading pixels or sending an API request (5.3404ms)
+✔ openai pure text keeps its original request shape and does not add image labels (3.0685ms)
+✔ deepseek pure text keeps its original request shape and does not add image labels (2.9031ms)
+✔ an unknown chosen model is attempted once and an image error does not switch model or provider (4.7919ms)
+✔ one unavailable image rejects the whole question instead of sending partial images or only text (3.1001ms)
+✔ missing markers, image-only options without complete extraction and duplicate raw options never request a model (12.6738ms)
+✔ legacy standalone adapter still refuses image markup or image markers when helpers are absent (5.2794ms)
+✔ literal img text remains text when the extractor explicitly recorded zero images (4.2305ms)
+✔ missing resolved images are rejected before a paid request (3.5249ms)
+✔ reordered resolved images are rejected before a paid request (2.646ms)
+✔ empty-url resolved images are rejected before a paid request (2.0273ms)
+✔ cancelling an uncooperative image collector releases the shared slot and ignores its late completion (22.0689ms)
+✔ provider changes during image loading cancel the old collector and release the slot without sending old images (6.4676ms)
+✔ image preparation occupies bounded slots and a queued cancelled image never starts loading (6.7537ms)
+✔ HTTP 400 reports download failure without changing models or retrying (4.0869ms)
+✔ HTTP 400 reports decode failure without changing models or retrying (2.0068ms)
+✔ HTTP 400 reports unsupported image format without changing models or retrying (2.0682ms)
+✔ HTTP 400 reports image dimension limit without changing models or retrying (7.8522ms)
+✔ HTTP 400 reports image count limit without changing models or retrying (2.8505ms)
+✔ HTTP 400 reports image byte limit without changing models or retrying (2.6518ms)
+✔ HTTP 400 reports model vision support without changing models or retrying (2.6325ms)
+✔ HTTP 400 reports JSON output setting without changing models or retrying (2.1785ms)
+✔ HTTP 400 reports an ordinary unsupported parameter without changing models or retrying (3.6344ms)
+✔ HTTP 400 reports an unrecognized provider reason without changing models or retrying (3.6758ms)
+✔ HTTP 400 diagnostics suppress echoed keys, URLs, query strings, base64 and the long provider message (3.616ms)
+✔ unsafe configured model labels are hidden from HTTP 400 diagnostics: https (4.8986ms)
+✔ unsafe configured model labels are hidden from HTTP 400 diagnostics: api-fixture.example.com (7.7053ms)
+✔ unsafe configured model labels are hidden from HTTP 400 diagnostics: sk-model-secret (2.6013ms)
+✔ unsafe configured model labels are hidden from HTTP 400 diagnostics: deepseek-fixture-key (2.278ms)
+✔ unsafe configured model labels are hidden from HTTP 400 diagnostics: openai-fixture-key (1.9837ms)
+✔ non-JSON HTTP 400 bodies produce an explicit unknown reason without showing the body (2.6453ms)
+✔ other HTTP status messages retain their original meaning even if the body contains an image error (7.176ms)
+✔ the image collector receives the selected provider/model snapshot and DeepSeek still requests five fields (1.9435ms)
+✔ changing stem image src invalidates the original answer immediately (10.2275ms)
+✔ changing stem image srcset invalidates the original answer immediately (5.7228ms)
+✔ changing stem image sizes invalidates the original answer immediately (3.2612ms)
+✔ changing stem image data-src invalidates the original answer immediately (2.4929ms)
+✔ changing stem image data-original invalidates the original answer immediately (2.4822ms)
+✔ changing stem image data-lazy-src invalidates the original answer immediately (1.9118ms)
+✔ changing stem image lazy-src invalidates the original answer immediately (1.8204ms)
+✔ changing stem image alt invalidates the original answer immediately (2.8136ms)
+✔ changing option image src invalidates the original answer immediately (3.6251ms)
+✔ changing option image srcset invalidates the original answer immediately (2.3761ms)
+✔ changing option image sizes invalidates the original answer immediately (2.1457ms)
+✔ changing option image data-src invalidates the original answer immediately (4.794ms)
+✔ changing option image data-original invalidates the original answer immediately (1.7082ms)
+✔ changing option image data-lazy-src invalidates the original answer immediately (1.768ms)
+✔ changing option image lazy-src invalidates the original answer immediately (1.7985ms)
+✔ changing option image alt invalidates the original answer immediately (1.9915ms)
+✔ a live image src change invalidates even unchanged markup (2.1473ms)
+✔ a live image currentSrc change invalidates even unchanged markup (1.8715ms)
+✔ a live image baseURI change invalidates even unchanged markup (1.9378ms)
+✔ picture source src changes invalidate the question (1.7944ms)
+✔ picture source srcset changes invalidate the question (1.6979ms)
+✔ picture source sizes changes invalidate the question (3.8471ms)
+✔ picture source media changes invalidate the question (1.7915ms)
+✔ picture source type changes invalidate the question (1.7377ms)
+✔ video option images outside the normal text selector are part of question identity (1.8745ms)
+✔ answer values and editor answer images do not become question content (1.7944ms)
+✔ a lazy image swap while inference is pending cancels siblings before any write (11.4002ms)
+✔ a queued question image change cancels before the queue can issue its request (6.8617ms)
+✔ unsupported visual structures appearing or changing invalidate a pending answer (14.1673ms)
+✔ background image URLs participate in identity while ordinary styling and selection do not (2.5888ms)
+✔ markers identify each image and preserve their stem and option labels (8.4407ms)
+✔ missing, duplicated, reordered or unbound markers reject the entire question (1.3276ms)
+✔ plain literal img text stays text while legacy actual image markup and visual nodes reject (0.6193ms)
+✔ metadata omissions cannot quietly drop a real DOM image (0.3127ms)
+✔ unsupported visuals outside an option text span reject instead of sending incomplete text (0.4515ms)
+✔ answer editor graphics and iframes do not make an otherwise textual question unsupported (0.599ms)
+✔ lazy sources and responsive currentSrc are resolved without loading another resource (1.3414ms)
+✔ allowed image data formats validate both base64 and their file signatures (2.2562ms)
+✔ a loaded browser-readable image is embedded as pixels, including protected URLs (0.9135ms)
+✔ a tainted canvas falls back to the sanitized public URL without cookies or userinfo (0.7932ms)
+✔ loaded temporary blob images may be embedded but blob addresses never leave the browser (0.6417ms)
+✔ unsupported schemes, missing sources, SVG URLs and private fallback addresses reject (1.1246ms)
+✔ image count, per-image bytes, dimensions and total embedded bytes have hard bounds (123.0456ms)
+✔ cancellation before or between images settles without leaking partial images (0.7049ms)
+✔ an image wait removes its load, error and abort listeners when cancelled (1.0631ms)
+✔ the shared image deadline clears pending polling and listeners (3.6691ms)
+✔ an original image changing source during its load never supplies the old marker with new pixels (1.6727ms)
+✔ JPEG compression fills transparent pixels with white before encoding (44.8435ms)
+✔ only the one complete final answer object can be recovered from surrounding prose (5.479ms)
+✔ multiple objects, wrapped arrays and truncated surrounding structures never select a plausible object (1.6537ms)
+✔ a complete schema inside examples or explicit thinking tags is never treated as the answer (0.7305ms)
+✔ JSON strings containing escaped quotes and bracket literals remain unchanged (0.3062ms)
+✔ invalid outputs return fixed messages without keys, URLs or source excerpts (0.406ms)
+✔ DeepSeek reasoning fields cannot supply an answer when content is missing or invalid (0.375ms)
+✔ oversized and deeply nested malformed text is rejected in bounded time (14.8989ms)
+✔ both provider paths accept plain JSON, BOM, complete fences and final-answer labels (57.1846ms)
+✔ escaped string contents remain exact and do not create candidate boundaries (17.1294ms)
+✔ invalid JSON string escapes receive a fixed diagnosis without repair (12.1008ms)
+✔ truncation remains distinct from absence of an object and malformed punctuation (12.8168ms)
+✔ multiple complete candidates are rejected even when only one matches the answer schema (9.6208ms)
+✔ arrays, nested objects and serialized JSON strings never supply a nested answer (13.46ms)
+✔ only explicit final-answer wrappers are accepted (31.7252ms)
+✔ strict fields, types and option-index checks remain in force after wrapper removal (26.4069ms)
+✔ provider incomplete flags and reasoning never provide a fallback final answer (10.6382ms)
+✔ fixed errors do not disclose model content, credentials, or image URLs (9.4849ms)
+✔ serial and concurrent mixed failures leave other questions running with no retries (10.1815ms)
+✔ prompts request a complete five-field object and escaped math while thinking stays unchanged (4.4729ms)
+✔ plain JSON, whitespace, BOM and complete JSON fences preserve the exact answer (4.8859ms)
+✔ one complete object with short surrounding explanation is accepted (1.7726ms)
+✔ nested brackets, escaped quotes and backslashes inside JSON strings are not candidate boundaries (1.6966ms)
+✔ two complete candidates are always rejected without choosing by schema or position (0.8566ms)
+✔ an answer nested in an object, array or JSON string is never extracted as the top-level answer (0.6384ms)
+✔ truncated or malformed content is not repaired (1.9892ms)
+✔ all incomplete suffixes of an ordinary object are rejected (3.9889ms)
+✔ missing, extra or mistyped answer fields retain the strict schema (1.6167ms)
+✔ DeepSeek and OpenAI use the same normalization (1.1655ms)
+✔ DeepSeek reasoning, refusal and tool calls cannot supply an answer (0.7882ms)
+✔ provider truncation flags override apparently complete JSON (0.4813ms)
+✔ fenced answers still use exact option indices and reject ambiguous mapping (0.9323ms)
+✔ invalid-answer messages never echo response text or secrets (0.3714ms)
+✔ a normally playing unfinished video is running rather than an exception (4.9362ms)
+✔ ended video waits for platform confirmation while inaccessible tasks require review (0.9962ms)
+✔ brief view coalesces equivalent consecutive visible messages without modifying source diagnostics (0.7857ms)
+✔ reminders omit ordinary progress, optional AI configuration and per-frame diagnostics (3.9385ms)
+✔ standalone answer overview uses actual question status and avoids claiming correctness (0.586ms)
+✔ raw text remains literal and brief repeat merging respects a one-minute window (0.492ms)
+✔ models are fetched only explicitly, without requiring or choosing a model (10.7229ms)
+✔ DeepSeek uses only its own key and returns whitelisted advertised metadata (3.0012ms)
+✔ invalid or missing provider credentials never trigger a request (6.1457ms)
+✔ unsafe identifiers, server HTML and credentials cannot enter a returned list (2.6099ms)
+✔ malformed, empty, excessive and oversized responses produce fixed errors (26.4177ms)
+✔ HTTP errors are diagnosed without returning provider messages or secrets (9.9474ms)
+✔ provider or active key changes abort old requests; model-only changes remain valid (6.5646ms)
+✔ a stale response is rejected even before the next polling tick (1.8123ms)
+✔ AbortSignal cancellation removes listeners and tolerates throwing transport aborts (2.3951ms)
+✔ deadline and native timeouts release transport and all timers (2.5542ms)
+✔ network failures, thrown send and synchronous callbacks settle once without retries (7.5949ms)
+✔ pre-cancelled and throwing context guards never issue network calls (1.9819ms)
+✔ custom completion URLs derive the models endpoint with prefix and query preserved (3.4962ms)
+✔ each provider can use an explicit models URL independent of its completion route (2.8543ms)
+✔ invalid URLs and unknown automatic routes are rejected before sending credentials (12.7212ms)
+✔ completion or models URL changes cancel stale lists even when the other URL is unchanged (5.762ms)
+✔ inactive provider URL changes do not cancel the current provider list (1.4841ms)
+✔ unexpected redirect responses cannot return a model list or expose the target URL (2.3476ms)
+✔ same chapter work reloaded by noSubmit is not solved and saved in a loop (46.7538ms)
+✔ new iframe objects and volatile URL tokens cannot restart the same paid work (6.1818ms)
+✔ a new work id or changed question can still be processed (8.6674ms)
+✔ save reloads changing control identifiers and read-only state do not restart the same questions (7.411ms)
+✔ new answer controls becoming available permit a new attempt (6.0467ms)
+✔ a duplicate blocked after reload can later show different questions in the same document (9.8126ms)
+✔ computed hidden or disabled chapter navigation is never clicked (16.426ms)
+✔ a navigation control replaced during the delay is not clicked (6.604ms)
+✔ returning to an already departed chapter stops automatic chapter cycles (10.0182ms)
+✔ the visible next-section route preserves one-click behavior and stops automatic chapter cycles (10.811ms)
+✔ a real inferred type change from writable text to unavailable text preserves logical work identity (2.7636ms)
+✔ answer values, checked state and regenerated names do not change the work fingerprint (0.3455ms)
+✔ new question text and actual answer-control structure still permit new work (0.5206ms)
+✔ rich editor text changes do not enter a structural work fingerprint (0.547ms)
+✔ no-key solving preserves existing answers and skips only questions requiring inference (13.5344ms)
+✔ already answered questions need no key and remain verifiable in serial mode (2.6303ms)
+✔ key selection uses only the active provider and solving can resume after configuration (6.1395ms)
+✔ no-key chapter work does not save, submit, change tabs or lock later configured attempts (9.6339ms)
+✔ completed chapter work remains completed without credentials (2.1014ms)
+✔ no-key chapter media still plays and only an actual quiz requests manual handling (2.9986ms)
+✔ a no-key chapter with skipped homework can still process a document (2.546ms)
+✔ missing and explicit default effort preserve the complete previous request body (32.5105ms)
+✔ all explicit OpenAI effort values use only Responses reasoning.effort (15.3ms)
+✔ DeepSeek none disables thinking and sends no reasoning_effort (2.2242ms)
+✔ DeepSeek low high and max enable thinking with the selected reasoning_effort (5.0326ms)
+✔ provider effort settings stay independent and invalid unused settings are ignored (3.6717ms)
+✔ invalid selected effort fails locally without transport, image reading, or raw value disclosure (27.7089ms)
+✔ effort changes cancel active and queued snapshots, and the next request captures the new setting (16.4141ms)
+✔ changing the other provider effort leaves current active and queued work valid (6.6429ms)
+✔ changing to an invalid selected effort cancels old work and sends no replacement (3.9704ms)
+✔ effort changes during image preparation abort its collector before a model request (6.0894ms)
+✔ explicit effort preserves provider multimodal bodies, schema and exact option mapping (5.4454ms)
+✔ unsupported thinking parameters receive a safe default-setting hint and never retry (20.2554ms)
+✔ reasoning effort does not use reasoning_content or relax JSON and index validation (22.3523ms)
+PASS R03: literal DOM text remains intact in model input
+PASS type whitelist: inherited object keys are rejected
+PASS R12: cancellation interrupts a 100-second interval and releases the queue
+PASS R06: Chaoxing native text inputs are counted and accepted
+✔ D:\插件\tests\review-adapter.cjs (294.3076ms)
+✔ R07: nested tasks added after the root document loads are discovered without changing the root (24.6962ms)
+✔ R07: later accessible nested documents are rescanned and in-flight scans do not overlap (6.7403ms)
+✔ R08: zero-answer save-only tasks never become completed or advance a chapter (9.926ms)
+✔ R08: issuing submit calls alone is insufficient to mark the work complete (5.0096ms)
+✔ a platform completion marker permits one advance after the task tree settles (6.5859ms)
+✔ a new unfinished task appearing during the navigation delay prevents advance (8.7682ms)
+✔ empty task lists and inaccessible unfinished tasks cannot prove completion (3.4247ms)
+✔ a slow nested container blocks navigation even when all currently visible task markers are finished (3.4572ms)
+✔ attempt deduplication records saved state separately and allows retry after a question identity change (3.712ms)
+✔ a document that had no actionable task is eligible again after controls appear (5.7182ms)
+✔ a cancelled solve performs neither save nor submission (3.9304ms)
+✔ platform save failures do not repeat paid inference on every scan (4.6094ms)
+✔ V02: an answer cleared during the submit delay prevents final confirmation without repeated inference (6.8751ms)
+✔ V05: disabling navigation during the delay cancels it and allows a later deliberate re-enable (6.019ms)
+✔ R01: zero, partial, cancelled, stale and unverified exam solves cannot navigate (8.2357ms)
+✔ R01: a page change or disabling navigation during the delay prevents all exam navigation (3.7433ms)
+✔ a fully filled, current exam question uses exactly one next action (4.4836ms)
+PASS: superscript structure survives the actual DOM extraction path.
+PASS: exam stays in place after a cancelled or entirely unfilled solve.
+PASS: every queued question is tied to its identity at parse time.
+PASS: a hidden backing textarea cannot substitute for an unavailable rich editor.
+PASS: native input blanks use the same field enumeration for counting and filling.
+✔ D:\插件\tests\review-logic.cjs (251.2796ms)
+✔ ordinary Function.call preserves return, this, arguments, and native exceptions (8.2062ms)
+✔ probe reads export getters only for validated modules and isolates failures (2.6953ms)
+✔ target module gets one mixin, restores global call immediately, and supports disposal (3.0458ms)
+✔ target probing ignores frozen, missing, and mismatched install structures (2.5098ms)
+✔ failing optional mixin does not alter plugin install result (1.3533ms)
+✔ pagehide restores hooks without overwriting later third-party replacements (2.1611ms)
+✔ timer hook is idempotent and preserves native parameters, result and restore (5.5043ms)
+✔ JSON XHR response triggers phases without reading responseText and keeps all open arguments (2.0851ms)
+✔ reusing an XHR removes old listeners and handles latest request once (2.5207ms)
+✔ only latest matching request handles load when separate requests race (1.8785ms)
+✔ shared XHR wrapper permits independent disposal without stacking patches (1.5934ms)
+✔ XHR callback errors preserve native return and never throw into load handlers (2.2748ms)
+✔ XHR native exceptions and URL-object conversions retain native semantics (2.3179ms)
+✔ XHR abort and disposal clean pending listeners (1.6429ms)
+✔ XHR error and disposal clean pending listeners (2.2823ms)
+✔ XHR timeout and disposal clean pending listeners (2.5417ms)
+✔ XHR loadend and disposal clean pending listeners (2.0155ms)
+✔ nonmatching and HTTP error requests never trigger successful load (2.0845ms)
+✔ hostname check respects domain boundaries and ignores redirects and userinfo (1.9027ms)
+{
+  "disabled": {
+    "ownDisabled": false,
+    "effectivelyDisabled": true,
+    "count": 0,
+    "apiSuccess": false,
+    "reportedFilled": false,
+    "value": "",
+    "submitted": false
+  },
+  "legend": {
+    "type": "2",
+    "count": 1,
+    "apiSuccess": true,
+    "reportedFilled": true,
+    "values": [
+      "42",
+      "",
+      ""
+    ],
+    "effective": [
+      false,
+      true,
+      true
+    ],
+    "submitted": [
+      [
+        "first",
+        "42"
+      ]
+    ]
+  },
+  "editor": {
+    "ownDisabled": false,
+    "effectivelyDisabled": true,
+    "count": 0,
+    "found": false,
+    "apiSuccess": false,
+    "reportedFilled": false,
+    "body": "unchanged editor"
+  },
+  "visual": [
+    {
+      "id": "svg-stem",
+      "apiSuccess": false,
+      "sent": 0,
+      "stem": "如图，阴影部分的面积是多少？￼[ai-visual:svg]￼",
+      "options": [
+        " 10",
+        " 20"
+      ],
+      "error": "题目包含暂不支持的图形或其他非文字内容，请手动作答"
+    },
+    {
+      "id": "canvas-stem",
+      "apiSuccess": false,
+      "sent": 0,
+      "stem": "根据下图判断递增区间？￼[ai-visual:canvas]￼",
+      "options": [
+        " 10",
+        " 20"
+      ],
+      "error": "题目包含暂不支持的图形或其他非文字内容，请手动作答"
+    },
+    {
+      "id": "svg-option",
+      "apiSuccess": false,
+      "sent": 0,
+      "stem": "选择面积最大的图形",
+      "options": [
+        " 10￼[ai-visual:svg]￼",
+        " 20"
+      ],
+      "error": "题目包含暂不支持的图形或其他非文字内容，请手动作答"
+    },
+    {
+      "id": "canvas-option",
+      "apiSuccess": false,
+      "sent": 0,
+      "stem": "选择递增的函数图形",
+      "options": [
+        " 10￼[ai-visual:canvas]￼",
+        " 20"
+      ],
+      "error": "题目包含暂不支持的图形或其他非文字内容，请手动作答"
+    }
+  ],
+  "literal": {
+    "apiSuccess": true,
+    "input": {
+      "type": "single",
+      "stem": "解释<svg>与<canvas>，当x<b且b>0时求x^(2)与H_(2)O",
+      "options": [
+        "<svg>是标签名",
+        "20"
+      ],
+      "blank_count": null
+    }
+  },
+  "requests": 2
+}
+✔ D:\插件\tests\review-v033-adapter.cjs (1618.289ms)
+PASS: disabling automatic chapter navigation during its delay prevents the chapter click.
+PASS: disabling automatic submission during its delay prevents the final submission confirmation.
+✔ D:\插件\tests\review-v033-chapter.cjs (146.0883ms)
+STALE_CONFIG_REGRESSION {"credentialsPreserved":true,"secondFrameMenu":"2"}
+✔ getter-based webpack export receives one mixin and restores the global probe (6.3941ms)
+✔ BFCache suspends old XHR work, rescans on return, and keeps the live interceptor (6.824ms)
+✔ regression: a stale frame changing views preserves credentials saved in another frame (9.7739ms)
+✔ control: data-based webpack exports can be captured across separate JavaScript realms (4.33ms)
+✔ getter-based export capture works across realms and a throwing getter leaves normal calls intact (2.2589ms)
+✔ BFCache retains timer and call probes, then a real departure restores both (1.3448ms)
+PASS: reordered answer controls cancel the old answer before writing.
+PASS: verification rereads answers without invalidating the original question or requesting it again.
+PASS: changed Wisdom Tree shadow titles invalidate the question.
+PASS: replace invalidates the original answer control mapping.
+PASS: rename invalidates the original answer control mapping.
+PASS: change-type invalidates the original answer control mapping.
+PASS: string title representation is part of question identity.
+PASS: shadowRoot title representation is part of question identity.
+PASS: replacing an existing editor instance invalidates its original answer mapping.
+PASS: changed choice selection is reverified without changing question identity.
+PASS: replacing a custom option row with identical text invalidates its previous mapping.
+✔ D:\插件\tests\review-v033-logic.cjs (154.2547ms)
+✔ real Pinia proxy saves the first key from its raw initialization baseline and restores it (66.9479ms)
+✔ real reactive stores migrate the legacy full record, overlay fields and sync without echo writes (41.961ms)
+✔ chapter submission reads refreshed answers and the latest threshold at each stage (10.0182ms)
+✔ exam navigation stops when answer verification changes during the delay (2.2036ms)
+SELECTION_REVIEW {"check_answer":true,"check_answer_dx":true,"selected":true,"active":true,"checked":true,"is-checked":true,"batchRate":100,"batchCancelled":false,"batchSelections":[true,true],"actualTextChangeRejected":true,"selectedTextChangeRejected":true,"statusBackgroundSupported":true,"statusIconSupported":true,"siblingChoiceImageRejected":true,"missingContentImageRejected":true,"actualContentImageSupported":true,"contentBackgroundRejected":true,"siblingCanvasRejected":true,"imageInitiallyEmpty":true,"sameImageLoadSupported":true}
+✔ selecting real option rows preserves question identity and lets all questions finish (1277.3918ms)
+✔ the installable userscript has valid JavaScript syntax (26.656ms)
+✔ network metadata permits the official providers and user-configured endpoints without original updates (2.0158ms)
+✔ the shipped script contains no original question-bank or announcement endpoints (2.559ms)
+✔ the installable artifact embeds the adapter exercised by its dedicated tests (1.4656ms)
+✔ fresh configuration stores the API key only in independent userscript storage (5.4887ms)
+✔ upgrading existing userscript settings preserves OpenAI credentials and adds independent DeepSeek defaults (4.1828ms)
+✔ saving and restoring DeepSeek settings preserves both providers without copying credentials (6.3285ms)
+✔ legacy configuration cannot silently import a credential or enable submission (5.9357ms)
+✔ all automatic submission and question switching controls start disabled (3.4234ms)
+✔ exact answer selection preserves opposite inequality signs (3.367ms)
+✔ exact answer selection preserves encoded comparison operators (2.5135ms)
+✔ ambiguous normalized options are left for manual handling (3.4414ms)
+✔ the provider selector shows independent editable credentials and models without overwriting either provider (6.1508ms)
+✔ editable request and model-list URLs switch independently and reset only the current service (7.522ms)
+✔ the installed DeepSeek adapter works with an empty OpenAI key and sends only the DeepSeek credential (14.3424ms)
+✔ page entry starts ordinary task logic without credentials or changing the selected tab (12.827ms)
+✔ model answers, explanations, errors and question titles render as text (2.0747ms)
+✔ failed page filling is not counted toward the submission threshold (28.3476ms)
+✔ detached questions and detached options receive no clicks (2.4501ms)
+✔ a control exception becomes an unfilled result instead of rejecting the run (1.8877ms)
+✔ an already selected choice inside a disabled fieldset is not accepted as a valid answer (1.485ms)
+✔ visible native text controls do not instantiate an unavailable rich editor (2.1001ms)
+✔ model HTML stays literal in native and contenteditable text fields (1.9976ms)
+✔ model HTML is escaped before entering a rich editor (1.6163ms)
+✔ hidden rich editor source fields are never written when no existing visible editor is available (1.4832ms)
+✔ an existing rich editor is found by source id and its visible content is verified (2.3081ms)
+✔ a rich editor that reports a value without changing its visible body is not counted as filled (2.1053ms)
+✔ a URL change during model inference cancels the old answer before filling (13.7398ms)
+✔ parent cancellation aborts model inference and prevents answer application (9.3677ms)
+✔ reused question DOM invalidates an answer when its title or platform options change (7.6227ms)
+✔ a page change during filling cannot be counted as a successful result (15.954ms)
+✔ later queued questions are bound to their parsed identity before any model request (15.9269ms)
+✔ a completed solve retains a live identity check for submission after a delay (20.6195ms)
+✔ dynamic verification rereads immutable answer expectations without resending a model request (16.778ms)
+✔ turning off Wisdom Tree automatic switching during its delay prevents navigation (7.8313ms)
+✔ answer control changes and selection markers do not invalidate the original question identity (1.7817ms)
+✔ the answer applicator stops before touching a stale question or the next option (2.2725ms)
+ℹ tests 531
+ℹ suites 0
+ℹ pass 531
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2293.1888

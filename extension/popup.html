@@ -1,0 +1,6 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI 学习助手</title><link rel="stylesheet" href="popup.css"></head>
+<body><main><header><img src="icons/icon48.png" alt="" width="36" height="36"><div><h1>AI 学习助手</h1><p id="version">浏览器扩展</p></div><span class="badge">独立运行</span></header>
+<section><span class="eyebrow">开始学习</span><h2>在课程页面使用</h2><p>进入章节或作业页面后，助手会自动显示。视频和文档无需 Key，需要 AI 解题时再在页面面板中配置。</p><button id="show" type="button">打开页面面板 <span aria-hidden="true">↗</span></button><button id="refresh" class="secondary" type="button">刷新当前课程页</button><p id="status" role="status" aria-live="polite"></p></section>
+<section class="updates" aria-label="版本更新"><div class="update-heading"><h2>版本更新</h2><button id="check-updates" type="button" class="quiet">检查更新</button></div><p id="update-status" role="status" aria-live="polite">正在读取更新状态…</p><p id="update-time"></p><div id="update-actions" hidden><button id="download-update" type="button">下载新版</button><button id="view-release" type="button" class="quiet">查看发布说明</button></div><p class="update-help">每 6 小时自动检查。下载后替换原目录，在扩展管理页重新加载。</p></section>
+<footer>配置仅保存在本机。升级时保留原安装目录和扩展记录，无需重新填写密钥。</footer></main><script src="popup.js"></script></body></html>

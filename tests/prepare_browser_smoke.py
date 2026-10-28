@@ -42,6 +42,9 @@ const originalShadow = Element.prototype.attachShadow;
 Element.prototype.attachShadow = function(options) {return originalShadow.call(this, {...options,mode:"open"});};
 setTimeout(async () => {
   const root = [...document.querySelectorAll("body > div")].map(el=>el.shadowRoot).find(Boolean);
+  // Optional AI no longer forces this tab open on startup.
+  root?.querySelector('#tab-1')?.click();
+  await Promise.resolve();await Promise.resolve();
   const select = root?.querySelector(".ai-provider-select");
   const options = [...select?.options || []].map(option=>option.value);
   const passwordInput = () => root?.querySelector('input[type="password"]');

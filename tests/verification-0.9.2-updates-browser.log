@@ -1,0 +1,37 @@
+{
+  "realExtension": true,
+  "githubMetadataTransportStubbedViaDevTools": true,
+  "noProductionUpdateFunctionsReplaced": true,
+  "scenarios": [
+    "real-native-six-hour-update-alarm-is-created",
+    "webpage-and-course-content-cannot-borrow-the-update-service",
+    "real-action-popup-manual-check-discovers-new-release-and-sets-toolbar-badge",
+    "validated-release-is-persisted-in-independent-update-storage",
+    "actual-download-button-opens-the-validated-release-asset-without-installing"
+  ],
+  "errors": [],
+  "version": "0.9.2",
+  "alarmPeriodMinutes": 360,
+  "popupLayout": {
+    "viewport": [
+      367,
+      514
+    ],
+    "scrollWidth": 352,
+    "contentHeight": 619,
+    "checkVisible": true,
+    "downloadVisible": true
+  },
+  "screenshot": "updates-popup.png",
+  "githubTransportCalls": 1,
+  "updateRequestsContainNoModelCredentials": true,
+  "modelRequests": 0,
+  "unitOnlyCoverage": [
+    "current-and-older-releases",
+    "malformed-and-foreign-metadata",
+    "404-and-network-failures",
+    "cooldown-and-concurrent-checks"
+  ],
+  "passed": true,
+  "packageSha256": "345F6924DEF1FB86C02EE34A6B940450B60E86B6FCFE0BA3DC3DB1A79129EE48"
+}

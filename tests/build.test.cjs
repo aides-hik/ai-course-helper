@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
-const modules = ['config-storage.js', 'text-extraction.js', 'ai-images.js', 'ai-endpoints.js', 'ai-models.js', 'ai-adapter.js', 'ai-integration.js', 'chapter-logic.js', 'exam-logic.js', 'page-hooks.js', 'ui-panel.css'];
+const modules = ['config-storage.js', 'text-extraction.js', 'ai-images.js', 'ai-endpoints.js', 'ai-models.js', 'ai-adapter.js', 'ai-integration.js', 'chapter-logic.js', 'exam-logic.js', 'page-hooks.js', 'ui-panel.css', 'log-presentation.js'];
 
 test('the installable artifact contains every tested source module without drift', () => {
   const artifact = fs.readFileSync(path.join(root, 'ai-course-helper.user.js'), 'utf8').replace(/\r\n/g, '\n');

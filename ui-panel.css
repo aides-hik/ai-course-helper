@@ -65,6 +65,10 @@
 .main-page .ai-metric > strong { overflow:hidden; color:var(--ink); font-size:14px; font-weight:600; line-height:1.5; text-overflow:ellipsis; white-space:nowrap; }
 .main-page .ai-log-toolbar { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; }
 .main-page .ai-log-heading { display:flex; align-items:center; gap:7px; color:var(--ink); font-size:13px; font-weight:650; }
+.main-page .ai-log-actions { display:flex; align-items:center; gap:7px; }
+.main-page .ai-clear-logs { padding:5px 7px; border:0; border-radius:7px; background:transparent; color:var(--muted); font:inherit; font-size:11px; cursor:pointer; }
+.main-page .ai-clear-logs:hover { background:rgba(255,255,255,.45); color:var(--ink); }
+.main-page .ai-clear-logs:disabled { cursor:default; opacity:.45; }
 .main-page .ai-log-count { padding:1px 6px; border-radius:6px; background:rgba(255,255,255,.38); color:var(--muted); font-size:10px; font-weight:400; }
 .main-page .ai-copy-logs { padding:6px 10px; border:1px solid var(--ai-glass-border); border-radius:9px; background:rgba(255,255,255,.48); color:#4559ca; font-size:11px; font-weight:500; cursor:pointer; }
 .main-page .ai-log-controls { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0 0 8px; }

@@ -2,7 +2,7 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "0.8.0"
+VERSION = "0.9.2"
 MODULES = {
     "CONFIG_STORAGE": "config-storage.js",
     "TEXT_EXTRACTORS": "text-extraction.js",
@@ -15,10 +15,11 @@ MODULES = {
     "EXAM": "exam-logic.js",
     "PAGE_HOOKS": "page-hooks.js",
     "UI_STYLES": "ui-panel.css",
+    "LOG_PRESENTATION": "log-presentation.js",
 }
 
 
-def build():
+def render():
     text = (ROOT / "userscript.template.js.in").read_text(encoding="utf-8")
     if text.count("@AI_HELPER_VERSION@") != 1:
         raise ValueError("Expected one version marker in userscript template")
@@ -30,6 +31,11 @@ def build():
         text = text.replace(marker, (ROOT / filename).read_text(encoding="utf-8").rstrip())
     if "/* @ai-helper:" in text:
         raise ValueError("Unresolved source marker in userscript template")
+    return text
+
+
+def build():
+    text = render()
     target = ROOT / "ai-course-helper.user.js"
     target.write_text(text, encoding="utf-8", newline="\n")
     print(f"Built {target.name} {VERSION} ({len(text.splitlines())} lines)")

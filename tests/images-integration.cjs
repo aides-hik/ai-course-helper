@@ -27,7 +27,7 @@ function question(title, picture = image(), location = 'stem') {
 }
 function harness(overrides = {}) {
   const timers = new Map();let timerId = 0;
-  const config = {ai:{concurrentEnabled:true,concurrency:3}};
+  const config = {ai:{apiKey:'offline-fixture-key',concurrentEnabled:true,concurrency:3}};
   const context = vm.createContext({AbortController,
     window:{location:{href:'https://course.test/exam'}},
     setInterval(callback){const id=++timerId;timers.set(id,callback);return id;},clearInterval:(id)=>timers.delete(id),

@@ -18,6 +18,7 @@ function harness(overrides = {}) {
     AbortController, window: {location:{href:'https://example.chaoxing.com/exam-ans/exam'}},
     setInterval:()=>1,clearInterval(){},sleep:async()=>{},
     vue:{reactive:(value)=>value},
+    useConfigStore:()=>({ai:{apiKey:'offline-fixture-key'}}),
     getAnswer:async(question)=>({values:question.expected,meta:{}}),
     getAnswerValues:(response)=>response.values,
     ...overrides

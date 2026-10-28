@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         网课学习助手 · OpenAI / DeepSeek 解题版
 // @namespace    local.openai.course-helper
-// @version      0.8.0
+// @version      0.9.2
 // @description  超星/智慧树学习助手，支持 OpenAI / DeepSeek 文字及图片解题、可配置并发，默认关闭自动提交。
 // @license      MIT
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50' y='54' text-anchor='middle' dominant-baseline='central' font-size='82' font-family='Apple Color Emoji,Segoe UI Emoji,Noto Color Emoji,sans-serif'%3E%F0%9F%92%AF%3C/text%3E%3C/svg%3E
@@ -689,7 +689,7 @@
         cancelPending();
         cancelSearch();
         state = { root, key, submittedAt: null, continued: false, blocked: false, warned: false };
-        options.log("检测到视频弹题，将使用已配置的 AI 模型解题。", "primary");
+        options.log("检测到视频弹题，等待作答后继续播放。", "primary");
       }
       if (!options.isEnabled()) {
         cancelPending();
@@ -1136,12 +1136,14 @@
     `AI 网课学习助手 v${getScriptInfo().version}`,
     `导出时间：${new Date().toLocaleString()}`,
     `当前保留 ${logs.length} 条日志（最多 ${LOG_HISTORY_LIMIT} 条）`,
+    "日志内容：完整记录，不受面板筛选影响",
     "",
     ...logs.map((item) => `[${item.time}] [${item.type || "primary"}] ${item.message}`)
   ].join("\n");
   const useLogStore = pinia.defineStore("logStore", {
     state: () => ({
-      logList: []
+      logList: [],
+      overviewHistory: []
     }),
     actions: {
       addLog(message, type) {
@@ -1153,6 +1155,10 @@
         this.logList.push(log);
         if (this.logList.length > LOG_HISTORY_LIMIT)
           this.logList.splice(0, this.logList.length - LOG_HISTORY_LIMIT);
+      },
+      clearLogs() {
+        this.overviewHistory.splice(0, this.overviewHistory.length, ...[...this.overviewHistory, ...this.logList].slice(-100));
+        this.logList.splice(0, this.logList.length);
       }
     }
   });
@@ -2070,6 +2076,101 @@
     });
   };
   const getNotice = async () => [];
+  // Presentation only: source diagnostics and exported messages stay intact.
+  const logMessage = (entry) => String(entry?.message ?? "");
+  const logCleanDiagnostic = (message) => String(message || "").replace(/（(?:#prevNextFocusNext|\.nextChapter)）/g, "");
+  const logDetailOnly = (entry) => {
+    const message = logMessage(entry);
+    if (message.startsWith("[章节诊断]")) {
+      if (!/^\[章节诊断\] (?:当前原因：|跳章：)/.test(message) || /等待页面稳定/.test(message)) return true;
+      // The overview already explains ordinary in-progress/loading states.
+      // Keep their internal completion-marker diagnostics in the full view.
+      if (/^\[章节诊断\] 当前原因：/.test(message) && /未识别到平台完成标记|空白页|尚未加载/.test(message) && !/不可访问|失败|无法确定|多个|已停止/.test(message)) return true;
+      return false;
+    }
+    return /^(?:用户悉知：|脚本加载成功，正在解析网页|请不要多个脚本同时使用|如果脚本出现异常|正在解析任务点，请稍等|检测到用户进入到章节学习页面|成功解析到 \d+ 个题目|模型：)/.test(message);
+  };
+  const logReminder = (entry) => {
+    if (logDetailOnly(entry)) return false;
+    const message = logMessage(entry);
+    if (["danger", "error"].includes(entry.type)) return true;
+    // A missing completion flag while a task is in progress is not an error.
+    const normalProgress = /^\[章节诊断\] 当前原因：.*(?:未识别到平台完成标记|空白页|文档尚未|等待页面|等待平台)/.test(message) && !/不可访问|失败|无法确定|多个|已停止/.test(message);
+    if (normalProgress || /^(?:AI 未配置：|发现一个|正在解析|正在尝试播放)/.test(message)) return false;
+    return entry.type === "warning" || /失败|异常|超时|不可访问|无法确定|无法连接|需手动|请手动|未完成|已停止|已取消|请核对平台|无法确认|按钮不可用|请检查|发生变化/.test(message);
+  };
+  const logDisplayMessage = (entry, mode) => {
+    const message = logMessage(entry);
+    if (mode === "detail") return message;
+    if (/^\[章节诊断\] (?:当前原因：|跳章：)/.test(message)) return logCleanDiagnostic(message).replace(/^\[章节诊断\] (?:当前原因：|跳章：)/, "").split("；")[0];
+    return message.replace(/^发现一个(video|audio)，正在解析$/, (_, type) => type === "video" ? "已找到视频任务，准备播放。" : "已找到音频任务，准备播放。")
+      .replace(/^正在尝试播放(video|audio)，请稍等5s$/, (_, type) => type === "video" ? "正在启动视频播放。" : "正在启动音频播放。")
+      .replace(/^(video|audio)已播放完成$/, (_, type) => (type === "video" ? "视频" : "音频") + "已播放结束，等待平台确认。")
+      .replace(/^(video|audio)任务点已完成，跳过$/, (_, type) => (type === "video" ? "视频" : "音频") + "任务已完成，已跳过。");
+  };
+  const logClock = (text) => {
+    const match = String(text || "").match(/^(\d{2}):(\d{2}):(\d{2})$/);
+    return match ? Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]) : null;
+  };
+  const logVisibleRows = (logs, mode = "brief") => {
+    const rows = [];
+    for (const entry of logs || []) {
+      if (mode !== "detail" && (logDetailOnly(entry) || mode === "reminders" && !logReminder(entry))) continue;
+      const displayMessage = logDisplayMessage(entry, mode);
+      const type = mode !== "detail" && /^\[章节诊断\] 当前原因：/.test(logMessage(entry)) && !logReminder(entry) ? "info" : entry.type;
+      const previous = rows[rows.length - 1];
+      const before = logClock(previous?.lastTime), now = logClock(entry.time);
+      const elapsed = before === null || now === null ? Infinity : (now - before + 86400) % 86400;
+      if (mode !== "detail" && previous?.displayMessage === displayMessage && previous.type === type && elapsed <= 60) {
+        previous.repeat += 1; previous.lastTime = entry.time;
+      } else rows.push({...entry, type, displayMessage, repeat: 1, lastTime: entry.time});
+    }
+    return rows;
+  };
+  const logOverview = (logs, questions = []) => {
+    let snapshot = null, snapshotIndex = -1;
+    for (let index = logs.length - 1; index >= 0; index--) {
+      const match = logMessage(logs[index]).match(/^\[章节诊断\].*?：(\d+) 个页面，(\d+) 个任务，(\d+) 个已确认/);
+      if (match) {snapshot = {total: Number(match[2]), completed: Number(match[3])}; snapshotIndex = index; break;}
+    }
+    const recent = logs.slice(Math.max(0, snapshotIndex));
+    const reasonEntry = [...recent].reverse().find(entry => logMessage(entry).startsWith("[章节诊断] 当前原因："));
+    const jumpEntry = [...recent].reverse().find(entry => logMessage(entry).startsWith("[章节诊断] 跳章："));
+    const reasonText = reasonEntry ? logCleanDiagnostic(reasonEntry.message).replace(/^\[章节诊断\] 当前原因：/, "").split("；任务下一步=")[0] : "";
+    const reason = reasonText.split("；")[0];
+    const jump = jumpEntry ? logCleanDiagnostic(jumpEntry.message).replace(/^\[章节诊断\] 跳章：/, "") : "";
+    const total = snapshot?.total || 0, completed = Math.min(total, snapshot?.completed || 0);
+    if (total) {
+      const complete = completed === total;
+      const media = recent.filter(entry => /^\[章节诊断\] 页面#.*(?:视频|音频)/.test(logMessage(entry)));
+      const unfinished = media.filter(entry => /阻塞=未识别到平台完成标记/.test(logMessage(entry)));
+      const ended = unfinished.some(entry => /结束=是/.test(logMessage(entry)));
+      const playing = unfinished.some(entry => /暂停=否/.test(logMessage(entry)));
+      const attention = /不可访问|无法确认|已停止|暂停自动|无法确定|失败|多个|按钮不可用/.test(reasonText) || /已取消|已停止/.test(jump);
+      const loading = !complete && /空白页|文档尚未|尚未加载|加载中|未加载/.test(reason);
+      const state = attention ? "attention" : complete ? "complete" : ended || loading ? "waiting" : "running";
+      return {state, total, completed,
+        badge: attention ? "待核对" : complete ? "已完成" : ended ? "等待平台确认" : loading ? "加载中" : "进行中",
+        title: complete ? "本页任务已完成" : attention ? "有任务需要查看" : ended ? "视频已结束，等待同步" : loading ? "正在加载章节任务" : "正在处理学习任务",
+        note: jump || (playing ? "视频正在播放，完成状态由平台确认。" : ended ? "等待平台显示完成标记后再切换章节。" : loading ? "页面加载后会继续处理任务。" : !attention && /未识别到平台完成标记/.test(reasonText) ? "任务正在处理中，完成状态由平台确认。" : reason) || "视频、文档和章节任务正在正常处理。",
+        progress: `${completed} / ${total}`};
+    }
+    if (questions.length) {
+      const filled = questions.filter(question => question.answerStatus === "success").length;
+      const requesting = questions.some(question => question.answerStatus === "searching");
+      const missing = questions.some(question => question.answerSource === "configuration");
+      const failed = questions.some(question => question.answerStatus === "error");
+      const complete = filled === questions.length;
+      return {state: complete ? "complete" : failed ? "attention" : requesting ? "running" : "waiting",
+        total: questions.length, completed: filled,
+        badge: complete ? "已填写" : failed ? "待核对" : requesting ? "解题中" : missing ? "可手动作答" : "等待解题",
+        title: complete ? "本页题目已填写" : failed ? "有题目需要核对" : requesting ? "正在解答本页题目" : missing ? "题目等待作答" : "已识别本页题目",
+        note: complete ? "已保留或填写页面答案，请核对后提交。" : missing ? "AI 未配置，可手动作答；视频和文档不受影响。" : failed ? "请到「解题」查看具体原因并核对填写。" : "答案与填写状态会显示在「解题」中。",
+        progress: `${filled} / ${questions.length}`};
+    }
+    return {state: "waiting", total: 0, completed: 0, badge: "等待任务", title: "准备好开始学习",
+      note: "视频和文档无需 API Key；需要 AI 解题时再配置。", progress: "等待识别"};
+  };
   const _hoisted_1$5 = { class: "script-home" };
   const ANSWER_TAB_NAME$1 = "1";
   const _sfc_main$8 = /* @__PURE__ */ vue.defineComponent({
@@ -2087,51 +2188,26 @@
       let copyResetTimer = 0;
       vue.onBeforeUnmount(() => clearTimeout(copyResetTimer));
       const logMode = vue.ref("brief");
-      const cleanDiagnosticText = (message) => String(message || "").replace(/（(?:#prevNextFocusNext|\.nextChapter)）/g, "");
-      const overview = vue.computed(() => {
-        const logs = __props.logList || [];
-        let snapshot = null;
-        let snapshotIndex = -1;
-        for (let index = logs.length - 1; index >= 0; index--) {
-          const match = String(logs[index].message || "").match(/^\[章节诊断\].*?：(\d+) 个页面，(\d+) 个任务，(\d+) 个已确认/);
-          if (match) {
-            snapshot = { total: Number(match[2]), completed: Number(match[3]) };
-            snapshotIndex = index;
-            break;
-          }
-        }
-        const recent = logs.slice(Math.max(0, snapshotIndex));
-        const latestReason = [...recent].reverse().find((item) => String(item.message || "").startsWith("[章节诊断] 当前原因："));
-        const latestJump = [...recent].reverse().find((item) => String(item.message || "").startsWith("[章节诊断] 跳章："));
-        const reason = latestReason ? cleanDiagnosticText(latestReason.message).replace(/^\[章节诊断\] 当前原因：/, "").split("；")[0] : "";
-        const jump = latestJump ? cleanDiagnosticText(latestJump.message).replace(/^\[章节诊断\] 跳章：/, "") : "";
-        const total = snapshot?.total || 0;
-        const completed = Math.min(total, snapshot?.completed || 0);
-        const isComplete = total > 0 && completed === total;
-        const needsReview = /不可用|无法确认|未识别到|不可访问|已停止|暂停自动|无法确定/.test(reason) || /已取消|已停止/.test(jump);
-        const state = needsReview ? "attention" : isComplete ? "complete" : total ? "running" : "waiting";
-        return {
-          state, total, completed,
-          badge: state === "complete" ? "已完成" : state === "running" ? "进行中" : state === "attention" ? "待核对" : "等待任务",
-          title: isComplete ? "本页任务已完成" : state === "attention" ? "有任务需要查看" : total ? "继续当前学习任务" : "准备好开始学习",
-          note: jump || reason || (total ? "任务状态会随平台反馈更新。" : "打开课程或题目页面，学习状态会显示在这里。"),
-          progress: total ? `${completed} / ${total}` : "等待识别"
-        };
-      });
+      const logStore = useLogStore();
+      const questionStore = typeof useQuestionStore === "function" ? useQuestionStore() : null;
+      const overview = vue.computed(() => logOverview([...(logStore.overviewHistory || []), ...(__props.logList || [])], questionStore?.questionList || []));
       const providerName = vue.computed(() => configStore.ai?.provider === "deepseek" ? "DeepSeek" : "OpenAI");
+      const keyReady = vue.computed(() => {
+        const ai = configStore.ai || {};
+        const key = ai.provider === "deepseek" ? ai.deepseekApiKey : ai.apiKey;
+        return [undefined, "openai", "deepseek"].includes(ai.provider) && typeof key === "string" && !!key.trim();
+      });
       const modelName = vue.computed(() => {
         const ai = configStore.ai || {};
-        return (ai.provider === "deepseek" ? ai.deepseekModel : ai.model) || "尚未选择模型";
+        return keyReady.value ? (ai.provider === "deepseek" ? ai.deepseekModel : ai.model) || "尚未选择模型" : "仅在 AI 解题时需要配置；视频和文档正常运行。";
       });
-      const visibleLogs = vue.computed(() => (logMode.value === "detail" ? __props.logList || [] : (__props.logList || []).filter((item) => {
-        const message = String(item.message || "");
-        if (message.startsWith("[章节诊断]")) return /^\[章节诊断\] (?:当前原因：|跳章：)/.test(message) && !/等待页面稳定/.test(message);
-        return !/^(?:用户悉知：|脚本加载成功，正在解析网页|请不要多个脚本同时使用|如果脚本出现异常|正在解析任务点，请稍等|检测到用户进入到章节学习页面)/.test(message);
-      })).map((item) => ({
-        ...item,
-        displayMessage: logMode.value !== "detail" && /^\[章节诊断\] (?:当前原因：|跳章：)/.test(String(item.message || ""))
-          ? cleanDiagnosticText(item.message).replace(/^\[章节诊断\] (?:当前原因：|跳章：)/, "").split("；")[0] : item.message
-      })));
+      const visibleLogs = vue.computed(() => logVisibleRows(__props.logList || [], logMode.value));
+      const clearLogs = () => {
+        clearTimeout(copyResetTimer);
+        logStore.clearLogs();
+        manualLogText.value = "";
+        copyStatus.value = "";
+      };
       vue.onMounted(async () => {
         announcements.value = await getNotice();
       });
@@ -2184,8 +2260,8 @@
                 vue.createElementVNode("strong", { class: "ai-metric-value" }, overview.value.progress)
               ]),
               vue.createElementVNode("div", { class: "ai-metric" }, [
-                vue.createElementVNode("span", { class: "ai-metric-label" }, "模型服务"),
-                vue.createElementVNode("strong", { class: "ai-metric-value", title: modelName.value }, providerName.value)
+                vue.createElementVNode("span", { class: "ai-metric-label" }, "AI 解题"),
+                vue.createElementVNode("strong", { class: "ai-metric-value", title: modelName.value }, keyReady.value ? providerName.value : "未配置（可选）")
               ])
             ])
           ]),
@@ -2194,17 +2270,21 @@
               vue.createElementVNode("span", null, "运行记录"),
               vue.createElementVNode("span", { class: "ai-log-count" }, String(_ctx.logList.length))
             ]),
-            vue.createElementVNode("button", {
-              type: "button", class: "ai-copy-logs", disabled: copying.value,
-              onClick: copyLogs
-            }, copying.value ? "正在复制…" : copyStatus.value === "日志已复制" ? "已复制" : "复制日志")
+            vue.createElementVNode("div", {class: "ai-log-actions"}, [
+              vue.createElementVNode("button", {type: "button", class: "ai-clear-logs", disabled: copying.value || !_ctx.logList.length, onClick: clearLogs, title: "清空记录，学习任务继续运行"}, "清空"),
+              vue.createElementVNode("button", {
+                type: "button", class: "ai-copy-logs", disabled: copying.value,
+                onClick: copyLogs
+              }, copying.value ? "正在复制…" : copyStatus.value === "日志已复制" ? "已复制" : "复制日志")
+            ])
           ]),
           vue.createElementVNode("div", { class: "ai-log-controls" }, [
             vue.createElementVNode("div", { class: "ai-log-modes", role: "group", "aria-label": "日志显示方式" }, [
               vue.createElementVNode("button", { type: "button", class: "ai-log-mode", "aria-pressed": logMode.value === "brief", onClick: () => logMode.value = "brief" }, "简要"),
+              vue.createElementVNode("button", { type: "button", class: "ai-log-mode", "aria-pressed": logMode.value === "reminders", onClick: () => logMode.value = "reminders" }, "提醒"),
               vue.createElementVNode("button", { type: "button", class: "ai-log-mode", "aria-pressed": logMode.value === "detail", onClick: () => logMode.value = "detail" }, "详细")
             ]),
-            vue.createElementVNode("span", { class: "ai-log-mode-note" }, logMode.value === "brief" ? "仅显示关键进展" : "包含全部诊断记录")
+            vue.createElementVNode("span", { class: "ai-log-mode-note" }, logMode.value === "detail" ? "完整诊断" : logMode.value === "reminders" ? "仅需处理的事项" : "关键进展，重复合并")
           ]),
           vue.createElementVNode("p", { class: "ai-log-copy-status", role: "status", "aria-live": "polite" }, copyStatus.value),
           manualLogText.value ? vue.createElementVNode("textarea", {
@@ -2222,20 +2302,21 @@
                 vue.createElementVNode("div", { key: index, class: "ai-log-entry", "data-type": item.type || "primary" }, [
                   vue.createVNode(_component_el_text, {
                     class: "log-time",
+                    title: item.repeat > 1 ? `首次 ${item.time}，最近 ${item.lastTime}；共 ${item.repeat} 次` : item.time,
                     size: "small",
                     type: "info"
                   }, {
-                    default: () => item.time
+                    default: () => item.lastTime
                   }),
                   vue.createElementVNode("span", { class: "ai-log-dot", "aria-hidden": "true" }),
                   vue.createVNode(_component_el_text, {
                     class: "ai-log-message",
                     type: item.type ? item.type : "primary",
                     size: "small",
-                    textContent: item.displayMessage
+                    textContent: item.displayMessage + (item.repeat > 1 ? `  ×${item.repeat}` : "")
                   })
                 ])
-              ) : [vue.createElementVNode("p", { class: "ai-log-empty" }, "暂时没有新的进展，完整记录可切换到详细视图。")]
+              ) : [vue.createElementVNode("p", { class: "ai-log-empty" }, logMode.value === "reminders" ? "没有需要处理的提醒。" : "暂无运行记录；新进展会继续显示在这里。")]
           })
         ]);
       };
@@ -2603,7 +2684,7 @@
     "aria-label": "使用教程",
     tabindex: "0"
   };
-  const _hoisted_2$2 = /* @__PURE__ */ vue.createStaticVNode('<header class="guide-header"><h2 class="guide-title">AI 解题配置</h2><p class="guide-subtitle">支持 OpenAI / DeepSeek</p></header><ol class="guide-list"><li class="guide-card"><h3 class="guide-card-title">1. 选择模型服务</h3><p class="guide-copy">打开「解题」，选择 OpenAI 或 DeepSeek，填写对应的 API Key。两家的密钥和模型分别保存。DeepSeek 默认使用支持图片的 deepseek-flash；OpenAI 需填写支持 Responses API 与结构化输出的模型，图片题还需图像输入能力。</p></li><li class="guide-card"><h3 class="guide-card-title">2. 保存并开始</h3><p class="guide-copy">点击「保存并刷新」。开启「并发答题」可同时解答当前页多道题，并跳过已有作答；填空须全部填完。关闭时逐题处理。答案及简短解析显示在面板中，改完后保存并刷新。</p></li><li class="guide-card"><h3 class="guide-card-title">3. 核对答案</h3><p class="guide-copy">默认关闭章节自动提交、视频弹题自动处理和考试自动切换。模型可能答错，请核对后再提交。需要自动处理视频弹题时可在设置中启用，该功能会提交弹题。</p></li><li class="guide-card"><h3 class="guide-card-title">费用和密钥</h3><p class="guide-copy">题目和图片仅发送给所选服务，API 按用量计费。支持题干及选项中的 PNG、JPEG、WebP、GIF 图片；图片无法读取时请手动处理。密钥只保存到脚本管理器中。</p></li></ol>', 2);
+  const _hoisted_2$2 = /* @__PURE__ */ vue.createStaticVNode('<header class="guide-header"><h2 class="guide-title">AI 解题配置</h2><p class="guide-subtitle">支持 OpenAI / DeepSeek</p></header><ol class="guide-list"><li class="guide-card"><h3 class="guide-card-title">1. 选择模型服务</h3><p class="guide-copy">打开「解题」，选择 OpenAI 或 DeepSeek，填写对应的 API Key。两家的密钥和模型分别保存。DeepSeek 默认使用支持图片的 deepseek-flash；OpenAI 需填写支持 Responses API 与结构化输出的模型，图片题还需图像输入能力。</p></li><li class="guide-card"><h3 class="guide-card-title">2. 保存并开始</h3><p class="guide-copy">点击「保存并刷新」。开启「并发答题」可同时解答当前页多道题，并跳过已有作答；填空须全部填完。关闭时逐题处理。答案及简短解析显示在面板中，改完后保存并刷新。</p></li><li class="guide-card"><h3 class="guide-card-title">3. 核对答案</h3><p class="guide-copy">默认关闭章节自动提交、视频弹题自动处理和考试自动切换。模型可能答错，请核对后再提交。需要自动处理视频弹题时可在设置中启用，该功能会提交弹题。</p></li><li class="guide-card"><h3 class="guide-card-title">费用和密钥</h3><p class="guide-copy">题目和图片仅发送给所选服务，API 按用量计费。支持题干及选项中的 PNG、JPEG、WebP、GIF 图片；图片无法读取时请手动处理。密钥仅保存在本机。</p></li></ol>', 2);
   const _hoisted_4$1 = [
     _hoisted_2$2
   ];
@@ -6902,6 +6983,31 @@
       return buffer;
     }
   }
+  // Credentials belong to AI inference, never to media/document chapter work.
+  const aiHasConfiguredKey = (config = typeof useConfigStore === "function" ? useConfigStore() : null) => {
+    const ai = config?.ai || {};
+    const provider = ai.provider ?? "openai";
+    if (!["openai", "deepseek"].includes(provider)) return false;
+    const key = ai[provider === "deepseek" ? "deepseekApiKey" : "apiKey"];
+    return typeof key === "string" && !!key.trim();
+  };
+  const aiMissingKeyNotices = new WeakMap();
+  const aiMissingKeyFallbackOwner = {};
+  const aiLogMissingKey = (log, scope = "questions", owner = aiMissingKeyFallbackOwner) => {
+    const target = owner && ["object", "function"].includes(typeof owner) ? owner : aiMissingKeyFallbackOwner;
+    const scopes = aiMissingKeyNotices.get(target) || new Set();
+    if (scopes.has(scope)) return false;
+    scopes.add(scope);
+    aiMissingKeyNotices.set(target, scopes);
+    const message = scope === "chapter"
+      ? "AI 未配置：本页作业等待手动作答；视频、文档和其他章节任务继续处理。"
+      : scope === "video-quiz"
+        ? "AI 未配置：请手动完成视频弹题后继续播放；需要自动解题时再填写 API Key。"
+        : "AI 未配置：已保留页面已有作答，剩余题目可手动完成，或在「解题」中填写 API Key。";
+    if (typeof log === "function") log(message, "info");
+    else log?.addLog?.(message, "info");
+    return true;
+  };
   // Page controls must acknowledge a change before it is counted as filled.
   const aiOptionSelected = (element) => {
     const input = element.matches?.('input[type="radio"],input[type="checkbox"]') ? element : element.querySelector?.('input[type="radio"],input[type="checkbox"]');
@@ -7176,7 +7282,7 @@
     const snapshots = [];
     const verifications = [];
     const result = handler.lastSolveResult = {
-      cancelled: false, total: 0, filled: 0, complete: false, rate: 0,
+      cancelled: false, total: 0, filled: 0, complete: false, rate: 0, skippedForMissingKey: false,
       isCurrent: () => {
         try {
           return !result.cancelled && !parentContext.signal?.aborted && (parentContext.isCurrent?.() ?? true) && snapshots.length > 0 && snapshots.every(({question, element, stamp, controls}) => question.element === element && !!element?.isConnected && aiQuestionStamp(question) === stamp && aiSameQuestionControlIdentity(question, controls, handler._window));
@@ -7227,7 +7333,9 @@
     const initialStates = rows.map((question) => concurrentEnabled ? aiReadExistingAnswer(question, handler._window)?.state : undefined);
     let nextIndex = 0, fillTail = Promise.resolve();
     const keepExisting = (question, index) => {
-      if (!concurrentEnabled || !result.isCurrent()) return false;
+      // Without AI credentials, existing answers remain available even when
+      // the user normally prefers serial solving with replacement enabled.
+      if ((!concurrentEnabled && aiHasConfiguredKey()) || !result.isCurrent()) return false;
       const existing = aiReadExistingAnswer(question, handler._window);
       if (!existing?.complete) return false;
       question.answer = existing.values;
@@ -7259,6 +7367,14 @@
       const snapshot = snapshots[index], question = rows[index];
       if (!result.isCurrent()) {abortBatch(); return;}
       if (keepExisting(question, index)) return;
+      if (!aiHasConfiguredKey()) {
+        result.skippedForMissingKey = true;
+        question.answerStatus = "pending";
+        question.answerSource = "configuration";
+        question.fillError = "AI 尚未配置，可手动作答；需要自动解题时请填写 API Key。";
+        aiLogMissingKey(handler.addLog, "questions", handler._document || handler);
+        return;
+      }
       const context = createAiQuestionContext(question, batchContext, snapshot.stamp, snapshot.controls);
       contexts.push(context);
       context.signal.addEventListener("abort", abortBatch, {once: true});
@@ -7272,7 +7388,7 @@
         if (!values?.length) {
           question.answerStatus = "error";
           question.answer = [answerData?.error?.message || "模型未返回可用答案"];
-          handler.addLog(`第 ${index + 1} 道题未完成，请到「答题」页签查看原因`, "warning");
+          handler.addLog(`第 ${index + 1} 道题未完成，请到「解题」页签查看原因`, "warning");
           return;
         }
         question.answer = values;
@@ -7306,7 +7422,7 @@
         else {
           question.answerStatus = "error";
           question.answer = [error?.message || "模型请求失败，请重试"];
-          handler.addLog(`第 ${index + 1} 道题未完成，请到「答题」页签查看原因`, "warning");
+          handler.addLog(`第 ${index + 1} 道题未完成，请到「解题」页签查看原因`, "warning");
         }
       } finally {
         context.signal.removeEventListener("abort", abortBatch);
@@ -7970,10 +8086,10 @@
       if (!context.isCurrent() || taskId !== currentWatchIframeTaskId || navigationPending) return;
       const complete = canAdvanceChapter(root);
       logChapterDiagnostics(root);
-      const message = complete ? "平台已确认本页任务完成" : "本页仍有未确认完成的任务，请核对平台状态";
+      const message = complete ? "平台已确认本页任务完成" : "本页任务仍在处理中，完成后继续按设置切换。";
       if (message !== lastCompletionMessage) {
         lastCompletionMessage = message;
-        logStore.addLog(message, complete ? "success" : "warning");
+        logStore.addLog(message, complete ? "success" : "info");
       }
       if (!complete || !configStore.platformParams.cx.parts[0].params[1].value || Date.now() - lastFrameChange < 1500) return;
       const before = chapterSnapshot(root);
@@ -8095,13 +8211,13 @@
         })).subscribe({
           complete: async () => {
             try { await checkChapterCompletion(documentElement, context, thisTaskId); }
-            catch (error) { if (context.isCurrent()) logStore.addLog(`无法确认章节完成状态：${String(error)}`, "warning"); }
+            catch { if (context.isCurrent()) logStore.addLog("章节状态读取失败，下次扫描会重试；持续异常时请刷新课程页。", "warning"); }
             finally { release(); }
           },
-          error: (error) => {
+          error: () => {
             release();
             if (context.isCurrent()) {
-              logStore.addLog(`任务处理失败：${String(error)}`, "danger");
+              logStore.addLog("当前任务处理失败，请检查播放器或任务页面状态后重试。", "danger");
             }
           }
         });
@@ -8188,7 +8304,12 @@
                   isCurrent: () => !settled && context.isCurrent() && !isFinishedTask(iframe),
                   isEnabled: () => {
                     var _a;
-                    return ((_a = configStore.platformParams.cx.parts[0].params.find((param) => param.name === VIDEO_QUIZ_SETTING)) == null ? void 0 : _a.value) !== false;
+                    const enabled = ((_a = configStore.platformParams.cx.parts[0].params.find((param) => param.name === VIDEO_QUIZ_SETTING)) == null ? void 0 : _a.value) !== false;
+                    if (enabled && typeof aiHasConfiguredKey === "function" && !aiHasConfiguredKey(configStore)) {
+                      if (quiz?.hasActiveQuiz()) aiLogMissingKey(logStore, "video-quiz", iframeDocument);
+                      return false;
+                    }
+                    return enabled;
                   },
                   delayMs: () => Number(configStore.otherParams.params[0].value) * 1e3,
                   search: (question, searchContext) => getAnswer(question, { ...searchContext, skipDelay: true }),
@@ -8238,12 +8359,16 @@
     const processWork = async (iframe, iframeDocument, iframeWindow, context) => {
       if (!context.isCurrent())
         return { state: "cancelled" };
-      configStore.menuIndex = ANSWER_TAB_NAME2;
-      logStore.addLog("发现一个作业，正在解析", "warning");
       if (isWorkConfirmed(iframe, iframeDocument)) {
         logStore.addLog("作业已经完成，跳过", "success");
         return { state: "completed" };
       }
+      if (typeof aiHasConfiguredKey === "function" && !aiHasConfiguredKey(configStore)) {
+        aiLogMissingKey(logStore, "chapter", iframeDocument);
+        return {state: "waiting-for-ai", isCurrent: context.isCurrent};
+      }
+      configStore.menuIndex = ANSWER_TAB_NAME2;
+      logStore.addLog("发现一个作业，正在解析", "primary");
       decrypt(iframeDocument);
       logStore.addLog(`题目列表获取成功`, "primary");
       const handler = new CxQuestionHandler("zj", iframe);
@@ -8272,6 +8397,10 @@
         return {state: context.isCurrent() ? "needs-review" : "cancelled", isCurrent: logicalCurrent};
       }
       const result = handler.lastSolveResult;
+      if (result?.skippedForMissingKey) {
+        if (workKey) attempts.delete(workKey);
+        return {state: "waiting-for-ai", isCurrent: logicalCurrent};
+      }
       const isCurrent = () => context.isCurrent() && !!result && !result.cancelled && result.isCurrent();
       if (!isCurrent()) {attempt.state = "cancelled"; return { state: "cancelled" };}
       if (!result.total) {if (workKey) attempts.delete(workKey); return { state: "waiting" };}
@@ -8365,7 +8494,7 @@
         return runningTask;
       const taskPromise = Promise.resolve().then(task).then((result) => {
         const outcome = result || { state: "waiting" };
-        if (!["waiting", "cancelled"].includes(outcome.state)) attempted.set(iframeDocument, outcome);
+        if (!["waiting", "waiting-for-ai", "cancelled"].includes(outcome.state)) attempted.set(iframeDocument, outcome);
         return outcome;
       }).finally(() => {
         running.delete(iframeDocument);
@@ -8927,10 +9056,7 @@
       const url2 = window.location.href;
       const cardWidth = vue.computed(() => configStore.menuIndex === ANSWER_TAB_NAME ? ANSWER_CARD_WIDTH : DEFAULT_CARD_WIDTH);
       (_a = document.querySelector("li>a.experience:not([onclick])")) == null ? void 0 : _a.click();
-      logStore.addLog("用户悉知：使用脚本即为完全同意用户协议", "success");
-      logStore.addLog("脚本加载成功，正在解析网页", "primary");
-      logStore.addLog("请不要多个脚本同时使用，会有脚本冲突问题", "warning");
-      logStore.addLog("如果脚本出现异常，请用谷歌、火狐等浏览器", "warning");
+      logStore.addLog("学习助手已启动，视频和文档无需 API Key；AI 解题可按需配置。", "info");
       const urlLogicPairs = [
         { keyword: "/mycourse/studentstudy", logic: useCxChapterLogic },
         { keyword: "/mooc2/work/dowork", logic: useCxWorkLogic },
@@ -8950,17 +9076,6 @@
       const executeLogicByUrl = (currentUrl) => {
         const matchedPair = urlLogicPairs.find(({ keyword }) => currentUrl.includes(keyword));
         if (matchedPair) {
-          const ai = configStore.ai;
-          const provider = ai.provider ?? "openai";
-          const key = provider === "deepseek" ? ai.deepseekApiKey : ai.apiKey;
-          const rawModel = provider === "deepseek" ? ai.deepseekModel : ai.model;
-          const model = (typeof rawModel === "string" ? rawModel.trim() : "") || (provider === "deepseek" ? "deepseek-flash" : "");
-          if (!["openai", "deepseek"].includes(provider) || typeof key !== "string" || !key.trim() || !model) {
-            configStore.menuIndex = ANSWER_TAB_NAME;
-            logStore.addLog("请在「解题」选择模型服务，填写对应的 API Key 和模型名称，再点击保存并刷新。", "warning");
-            updateVisible(true);
-            return;
-          }
           matchedPair.logic();
           updateVisible(true);
           return;
@@ -9312,6 +9427,10 @@
 .main-page .ai-metric > strong { overflow:hidden; color:var(--ink); font-size:14px; font-weight:600; line-height:1.5; text-overflow:ellipsis; white-space:nowrap; }
 .main-page .ai-log-toolbar { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; }
 .main-page .ai-log-heading { display:flex; align-items:center; gap:7px; color:var(--ink); font-size:13px; font-weight:650; }
+.main-page .ai-log-actions { display:flex; align-items:center; gap:7px; }
+.main-page .ai-clear-logs { padding:5px 7px; border:0; border-radius:7px; background:transparent; color:var(--muted); font:inherit; font-size:11px; cursor:pointer; }
+.main-page .ai-clear-logs:hover { background:rgba(255,255,255,.45); color:var(--ink); }
+.main-page .ai-clear-logs:disabled { cursor:default; opacity:.45; }
 .main-page .ai-log-count { padding:1px 6px; border-radius:6px; background:rgba(255,255,255,.38); color:var(--muted); font-size:10px; font-weight:400; }
 .main-page .ai-copy-logs { padding:6px 10px; border:1px solid var(--ai-glass-border); border-radius:9px; background:rgba(255,255,255,.48); color:#4559ca; font-size:11px; font-weight:500; cursor:pointer; }
 .main-page .ai-log-controls { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0 0 8px; }

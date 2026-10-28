@@ -15,7 +15,7 @@ function section(start, end) {
   return source.slice(a, b);
 }
 function evaluate(code, globals) {
-  const context = vm.createContext(globals);
+  const context = vm.createContext({useConfigStore:()=>({ai:{apiKey:'offline-fixture-key'}}), ...globals});
   vm.runInContext(code, context);
   return context;
 }

@@ -34,7 +34,7 @@ function question(title, type = '2', fields = [], options = {}) {
   return entry;
 }
 function harness(getAnswer, settings = {}) {
-  const config = {ai:{concurrentEnabled:true, concurrency:3, ...settings},
+  const config = {ai:{apiKey:'offline-fixture-key',concurrentEnabled:true, concurrency:3, ...settings},
     otherParams:{params:[{value:0}]}, platformParams:{zhs:{parts:[{params:[{value:false}]}]}}};
   const context = vm.createContext({AbortController, setTimeout, clearTimeout, setInterval, clearInterval,
     window:{location:{href:'https://example.chaoxing.com/work'}},

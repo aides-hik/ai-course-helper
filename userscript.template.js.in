@@ -368,7 +368,7 @@
         cancelPending();
         cancelSearch();
         state = { root, key, submittedAt: null, continued: false, blocked: false, warned: false };
-        options.log("检测到视频弹题，将使用已配置的 AI 模型解题。", "primary");
+        options.log("检测到视频弹题，等待作答后继续播放。", "primary");
       }
       if (!options.isEnabled()) {
         cancelPending();
@@ -747,12 +747,14 @@
     `AI 网课学习助手 v${getScriptInfo().version}`,
     `导出时间：${new Date().toLocaleString()}`,
     `当前保留 ${logs.length} 条日志（最多 ${LOG_HISTORY_LIMIT} 条）`,
+    "日志内容：完整记录，不受面板筛选影响",
     "",
     ...logs.map((item) => `[${item.time}] [${item.type || "primary"}] ${item.message}`)
   ].join("\n");
   const useLogStore = pinia.defineStore("logStore", {
     state: () => ({
-      logList: []
+      logList: [],
+      overviewHistory: []
     }),
     actions: {
       addLog(message, type) {
@@ -764,6 +766,10 @@
         this.logList.push(log);
         if (this.logList.length > LOG_HISTORY_LIMIT)
           this.logList.splice(0, this.logList.length - LOG_HISTORY_LIMIT);
+      },
+      clearLogs() {
+        this.overviewHistory.splice(0, this.overviewHistory.length, ...[...this.overviewHistory, ...this.logList].slice(-100));
+        this.logList.splice(0, this.logList.length);
       }
     }
   });
@@ -818,6 +824,7 @@
 /* @ai-helper:MODELS@ */
 /* @ai-helper:ADAPTER@ */
   const getNotice = async () => [];
+/* @ai-helper:LOG_PRESENTATION@ */
   const _hoisted_1$5 = { class: "script-home" };
   const ANSWER_TAB_NAME$1 = "1";
   const _sfc_main$8 = /* @__PURE__ */ vue.defineComponent({
@@ -835,51 +842,26 @@
       let copyResetTimer = 0;
       vue.onBeforeUnmount(() => clearTimeout(copyResetTimer));
       const logMode = vue.ref("brief");
-      const cleanDiagnosticText = (message) => String(message || "").replace(/（(?:#prevNextFocusNext|\.nextChapter)）/g, "");
-      const overview = vue.computed(() => {
-        const logs = __props.logList || [];
-        let snapshot = null;
-        let snapshotIndex = -1;
-        for (let index = logs.length - 1; index >= 0; index--) {
-          const match = String(logs[index].message || "").match(/^\[章节诊断\].*?：(\d+) 个页面，(\d+) 个任务，(\d+) 个已确认/);
-          if (match) {
-            snapshot = { total: Number(match[2]), completed: Number(match[3]) };
-            snapshotIndex = index;
-            break;
-          }
-        }
-        const recent = logs.slice(Math.max(0, snapshotIndex));
-        const latestReason = [...recent].reverse().find((item) => String(item.message || "").startsWith("[章节诊断] 当前原因："));
-        const latestJump = [...recent].reverse().find((item) => String(item.message || "").startsWith("[章节诊断] 跳章："));
-        const reason = latestReason ? cleanDiagnosticText(latestReason.message).replace(/^\[章节诊断\] 当前原因：/, "").split("；")[0] : "";
-        const jump = latestJump ? cleanDiagnosticText(latestJump.message).replace(/^\[章节诊断\] 跳章：/, "") : "";
-        const total = snapshot?.total || 0;
-        const completed = Math.min(total, snapshot?.completed || 0);
-        const isComplete = total > 0 && completed === total;
-        const needsReview = /不可用|无法确认|未识别到|不可访问|已停止|暂停自动|无法确定/.test(reason) || /已取消|已停止/.test(jump);
-        const state = needsReview ? "attention" : isComplete ? "complete" : total ? "running" : "waiting";
-        return {
-          state, total, completed,
-          badge: state === "complete" ? "已完成" : state === "running" ? "进行中" : state === "attention" ? "待核对" : "等待任务",
-          title: isComplete ? "本页任务已完成" : state === "attention" ? "有任务需要查看" : total ? "继续当前学习任务" : "准备好开始学习",
-          note: jump || reason || (total ? "任务状态会随平台反馈更新。" : "打开课程或题目页面，学习状态会显示在这里。"),
-          progress: total ? `${completed} / ${total}` : "等待识别"
-        };
-      });
+      const logStore = useLogStore();
+      const questionStore = typeof useQuestionStore === "function" ? useQuestionStore() : null;
+      const overview = vue.computed(() => logOverview([...(logStore.overviewHistory || []), ...(__props.logList || [])], questionStore?.questionList || []));
       const providerName = vue.computed(() => configStore.ai?.provider === "deepseek" ? "DeepSeek" : "OpenAI");
+      const keyReady = vue.computed(() => {
+        const ai = configStore.ai || {};
+        const key = ai.provider === "deepseek" ? ai.deepseekApiKey : ai.apiKey;
+        return [undefined, "openai", "deepseek"].includes(ai.provider) && typeof key === "string" && !!key.trim();
+      });
       const modelName = vue.computed(() => {
         const ai = configStore.ai || {};
-        return (ai.provider === "deepseek" ? ai.deepseekModel : ai.model) || "尚未选择模型";
+        return keyReady.value ? (ai.provider === "deepseek" ? ai.deepseekModel : ai.model) || "尚未选择模型" : "仅在 AI 解题时需要配置；视频和文档正常运行。";
       });
-      const visibleLogs = vue.computed(() => (logMode.value === "detail" ? __props.logList || [] : (__props.logList || []).filter((item) => {
-        const message = String(item.message || "");
-        if (message.startsWith("[章节诊断]")) return /^\[章节诊断\] (?:当前原因：|跳章：)/.test(message) && !/等待页面稳定/.test(message);
-        return !/^(?:用户悉知：|脚本加载成功，正在解析网页|请不要多个脚本同时使用|如果脚本出现异常|正在解析任务点，请稍等|检测到用户进入到章节学习页面)/.test(message);
-      })).map((item) => ({
-        ...item,
-        displayMessage: logMode.value !== "detail" && /^\[章节诊断\] (?:当前原因：|跳章：)/.test(String(item.message || ""))
-          ? cleanDiagnosticText(item.message).replace(/^\[章节诊断\] (?:当前原因：|跳章：)/, "").split("；")[0] : item.message
-      })));
+      const visibleLogs = vue.computed(() => logVisibleRows(__props.logList || [], logMode.value));
+      const clearLogs = () => {
+        clearTimeout(copyResetTimer);
+        logStore.clearLogs();
+        manualLogText.value = "";
+        copyStatus.value = "";
+      };
       vue.onMounted(async () => {
         announcements.value = await getNotice();
       });
@@ -932,8 +914,8 @@
                 vue.createElementVNode("strong", { class: "ai-metric-value" }, overview.value.progress)
               ]),
               vue.createElementVNode("div", { class: "ai-metric" }, [
-                vue.createElementVNode("span", { class: "ai-metric-label" }, "模型服务"),
-                vue.createElementVNode("strong", { class: "ai-metric-value", title: modelName.value }, providerName.value)
+                vue.createElementVNode("span", { class: "ai-metric-label" }, "AI 解题"),
+                vue.createElementVNode("strong", { class: "ai-metric-value", title: modelName.value }, keyReady.value ? providerName.value : "未配置（可选）")
               ])
             ])
           ]),
@@ -942,17 +924,21 @@
               vue.createElementVNode("span", null, "运行记录"),
               vue.createElementVNode("span", { class: "ai-log-count" }, String(_ctx.logList.length))
             ]),
-            vue.createElementVNode("button", {
-              type: "button", class: "ai-copy-logs", disabled: copying.value,
-              onClick: copyLogs
-            }, copying.value ? "正在复制…" : copyStatus.value === "日志已复制" ? "已复制" : "复制日志")
+            vue.createElementVNode("div", {class: "ai-log-actions"}, [
+              vue.createElementVNode("button", {type: "button", class: "ai-clear-logs", disabled: copying.value || !_ctx.logList.length, onClick: clearLogs, title: "清空记录，学习任务继续运行"}, "清空"),
+              vue.createElementVNode("button", {
+                type: "button", class: "ai-copy-logs", disabled: copying.value,
+                onClick: copyLogs
+              }, copying.value ? "正在复制…" : copyStatus.value === "日志已复制" ? "已复制" : "复制日志")
+            ])
           ]),
           vue.createElementVNode("div", { class: "ai-log-controls" }, [
             vue.createElementVNode("div", { class: "ai-log-modes", role: "group", "aria-label": "日志显示方式" }, [
               vue.createElementVNode("button", { type: "button", class: "ai-log-mode", "aria-pressed": logMode.value === "brief", onClick: () => logMode.value = "brief" }, "简要"),
+              vue.createElementVNode("button", { type: "button", class: "ai-log-mode", "aria-pressed": logMode.value === "reminders", onClick: () => logMode.value = "reminders" }, "提醒"),
               vue.createElementVNode("button", { type: "button", class: "ai-log-mode", "aria-pressed": logMode.value === "detail", onClick: () => logMode.value = "detail" }, "详细")
             ]),
-            vue.createElementVNode("span", { class: "ai-log-mode-note" }, logMode.value === "brief" ? "仅显示关键进展" : "包含全部诊断记录")
+            vue.createElementVNode("span", { class: "ai-log-mode-note" }, logMode.value === "detail" ? "完整诊断" : logMode.value === "reminders" ? "仅需处理的事项" : "关键进展，重复合并")
           ]),
           vue.createElementVNode("p", { class: "ai-log-copy-status", role: "status", "aria-live": "polite" }, copyStatus.value),
           manualLogText.value ? vue.createElementVNode("textarea", {
@@ -970,20 +956,21 @@
                 vue.createElementVNode("div", { key: index, class: "ai-log-entry", "data-type": item.type || "primary" }, [
                   vue.createVNode(_component_el_text, {
                     class: "log-time",
+                    title: item.repeat > 1 ? `首次 ${item.time}，最近 ${item.lastTime}；共 ${item.repeat} 次` : item.time,
                     size: "small",
                     type: "info"
                   }, {
-                    default: () => item.time
+                    default: () => item.lastTime
                   }),
                   vue.createElementVNode("span", { class: "ai-log-dot", "aria-hidden": "true" }),
                   vue.createVNode(_component_el_text, {
                     class: "ai-log-message",
                     type: item.type ? item.type : "primary",
                     size: "small",
-                    textContent: item.displayMessage
+                    textContent: item.displayMessage + (item.repeat > 1 ? `  ×${item.repeat}` : "")
                   })
                 ])
-              ) : [vue.createElementVNode("p", { class: "ai-log-empty" }, "暂时没有新的进展，完整记录可切换到详细视图。")]
+              ) : [vue.createElementVNode("p", { class: "ai-log-empty" }, logMode.value === "reminders" ? "没有需要处理的提醒。" : "暂无运行记录；新进展会继续显示在这里。")]
           })
         ]);
       };
@@ -1351,7 +1338,7 @@
     "aria-label": "使用教程",
     tabindex: "0"
   };
-  const _hoisted_2$2 = /* @__PURE__ */ vue.createStaticVNode('<header class="guide-header"><h2 class="guide-title">AI 解题配置</h2><p class="guide-subtitle">支持 OpenAI / DeepSeek</p></header><ol class="guide-list"><li class="guide-card"><h3 class="guide-card-title">1. 选择模型服务</h3><p class="guide-copy">打开「解题」，选择 OpenAI 或 DeepSeek，填写对应的 API Key。两家的密钥和模型分别保存。DeepSeek 默认使用支持图片的 deepseek-flash；OpenAI 需填写支持 Responses API 与结构化输出的模型，图片题还需图像输入能力。</p></li><li class="guide-card"><h3 class="guide-card-title">2. 保存并开始</h3><p class="guide-copy">点击「保存并刷新」。开启「并发答题」可同时解答当前页多道题，并跳过已有作答；填空须全部填完。关闭时逐题处理。答案及简短解析显示在面板中，改完后保存并刷新。</p></li><li class="guide-card"><h3 class="guide-card-title">3. 核对答案</h3><p class="guide-copy">默认关闭章节自动提交、视频弹题自动处理和考试自动切换。模型可能答错，请核对后再提交。需要自动处理视频弹题时可在设置中启用，该功能会提交弹题。</p></li><li class="guide-card"><h3 class="guide-card-title">费用和密钥</h3><p class="guide-copy">题目和图片仅发送给所选服务，API 按用量计费。支持题干及选项中的 PNG、JPEG、WebP、GIF 图片；图片无法读取时请手动处理。密钥只保存到脚本管理器中。</p></li></ol>', 2);
+  const _hoisted_2$2 = /* @__PURE__ */ vue.createStaticVNode('<header class="guide-header"><h2 class="guide-title">AI 解题配置</h2><p class="guide-subtitle">支持 OpenAI / DeepSeek</p></header><ol class="guide-list"><li class="guide-card"><h3 class="guide-card-title">1. 选择模型服务</h3><p class="guide-copy">打开「解题」，选择 OpenAI 或 DeepSeek，填写对应的 API Key。两家的密钥和模型分别保存。DeepSeek 默认使用支持图片的 deepseek-flash；OpenAI 需填写支持 Responses API 与结构化输出的模型，图片题还需图像输入能力。</p></li><li class="guide-card"><h3 class="guide-card-title">2. 保存并开始</h3><p class="guide-copy">点击「保存并刷新」。开启「并发答题」可同时解答当前页多道题，并跳过已有作答；填空须全部填完。关闭时逐题处理。答案及简短解析显示在面板中，改完后保存并刷新。</p></li><li class="guide-card"><h3 class="guide-card-title">3. 核对答案</h3><p class="guide-copy">默认关闭章节自动提交、视频弹题自动处理和考试自动切换。模型可能答错，请核对后再提交。需要自动处理视频弹题时可在设置中启用，该功能会提交弹题。</p></li><li class="guide-card"><h3 class="guide-card-title">费用和密钥</h3><p class="guide-copy">题目和图片仅发送给所选服务，API 按用量计费。支持题干及选项中的 PNG、JPEG、WebP、GIF 图片；图片无法读取时请手动处理。密钥仅保存在本机。</p></li></ol>', 2);
   const _hoisted_4$1 = [
     _hoisted_2$2
   ];
@@ -6134,10 +6121,7 @@
       const url2 = window.location.href;
       const cardWidth = vue.computed(() => configStore.menuIndex === ANSWER_TAB_NAME ? ANSWER_CARD_WIDTH : DEFAULT_CARD_WIDTH);
       (_a = document.querySelector("li>a.experience:not([onclick])")) == null ? void 0 : _a.click();
-      logStore.addLog("用户悉知：使用脚本即为完全同意用户协议", "success");
-      logStore.addLog("脚本加载成功，正在解析网页", "primary");
-      logStore.addLog("请不要多个脚本同时使用，会有脚本冲突问题", "warning");
-      logStore.addLog("如果脚本出现异常，请用谷歌、火狐等浏览器", "warning");
+      logStore.addLog("学习助手已启动，视频和文档无需 API Key；AI 解题可按需配置。", "info");
       const urlLogicPairs = [
         { keyword: "/mycourse/studentstudy", logic: useCxChapterLogic },
         { keyword: "/mooc2/work/dowork", logic: useCxWorkLogic },
@@ -6157,17 +6141,6 @@
       const executeLogicByUrl = (currentUrl) => {
         const matchedPair = urlLogicPairs.find(({ keyword }) => currentUrl.includes(keyword));
         if (matchedPair) {
-          const ai = configStore.ai;
-          const provider = ai.provider ?? "openai";
-          const key = provider === "deepseek" ? ai.deepseekApiKey : ai.apiKey;
-          const rawModel = provider === "deepseek" ? ai.deepseekModel : ai.model;
-          const model = (typeof rawModel === "string" ? rawModel.trim() : "") || (provider === "deepseek" ? "deepseek-flash" : "");
-          if (!["openai", "deepseek"].includes(provider) || typeof key !== "string" || !key.trim() || !model) {
-            configStore.menuIndex = ANSWER_TAB_NAME;
-            logStore.addLog("请在「解题」选择模型服务，填写对应的 API Key 和模型名称，再点击保存并刷新。", "warning");
-            updateVisible(true);
-            return;
-          }
           matchedPair.logic();
           updateVisible(true);
           return;

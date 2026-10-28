@@ -33,7 +33,7 @@ function question(index, values = ['']) {
 }
 const answer = (entry) => ({values:entry.expected,meta:{model:'offline',usage:{total_tokens:0}}});
 function harness(entries, overrides = {}) {
-  const config = {ai:{concurrentEnabled:true,concurrency:3},otherParams:{params:[{value:0}]},
+  const config = {ai:{apiKey:'offline-fixture-key',concurrentEnabled:true,concurrency:3},otherParams:{params:[{value:0}]},
     platformParams:{zhs:{parts:[{params:[{value:false}]}]}}};
   const intervals = new Map(), rows = [], logs = [];
   let nextTimer = 1;
@@ -116,7 +116,7 @@ test('disabling concurrent mode keeps one request active and retains the serial 
 
 test('legacy harnesses without the concurrency helper fall back to serial requests',async()=>{
   const entries=[question(0),question(1)],gate=deferred(),calls=[];
-  const api=harness(entries,{aiConcurrencyLimit:undefined,useConfigStore:undefined,
+  const api=harness(entries,{aiConcurrencyLimit:undefined,useConfigStore:()=>({ai:{apiKey:'offline-fixture-key'}}),
     getAnswer:(entry)=>{calls.push(entry.title);return calls.length===1 ? gate.promise : Promise.resolve(answer(entry));}});
   const result=api.solve(api.handler);assert.equal(calls.length,1);
   gate.resolve(answer(entries[0]));assert.equal(await result,100);assert.equal(calls.length,2);

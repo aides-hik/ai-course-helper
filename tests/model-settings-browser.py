@@ -122,6 +122,7 @@ if(['saved','post-deepseek'].includes(fixtureRead('phase','initial'))){
 setTimeout(async()=>{try{
   let shadow;
   await fixtureWait(()=>{shadow=[...document.querySelectorAll('body > div')].map(node=>node.shadowRoot).find(root=>root?.querySelector('.ai-config'));return !!shadow;},'settings mount');
+  shadow.querySelector('#tab-1').click();await fixtureTick();
   const provider=()=>shadow.querySelector('.ai-provider-select');
   const key=()=>shadow.querySelector('input[type="password"]');
   const model=()=>shadow.querySelector('.ai-model-row input');

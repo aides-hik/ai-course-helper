@@ -1,0 +1,52 @@
+{
+  "realExtension": true,
+  "noGM": true,
+  "realSyntheticVideo": true,
+  "scenarios": [
+    "without-key-real-video-plays-and-overview-shows-running-without-forced-settings",
+    "missing-key-chapter-work-waits-without-save-or-completion-and-later-video-continues",
+    "without-key-document-scrolls-and-runs-its-reading-wait",
+    "completed-video-without-key-advances-once-when-auto-next-enabled",
+    "no-key-work-retains-an-existing-answer-without-network",
+    "no-key-unanswered-work-is-left-for-manual-answering",
+    "brief-detail-reminder-filters-copy-all-raw-logs-and-clear-keeps-reactive-array",
+    "adding-a-key-enables-the-existing-native-AI-fill-flow"
+  ],
+  "screenshots": [
+    "optional-ai-video-desktop.png",
+    "optional-ai-video-320.png"
+  ],
+  "errors": [],
+  "video": {
+    "paused": false,
+    "current": 0.1584,
+    "duration": 90,
+    "ended": false
+  },
+  "narrow": {
+    "viewport": 320,
+    "width": 304,
+    "fits": true
+  },
+  "unconfiguredModelRequests": 0,
+  "logControls": {
+    "brief": true,
+    "detail": true,
+    "reminders": true,
+    "repeatMerged": true,
+    "fullRawCopy": true,
+    "clearPreservesIdentity": true
+  },
+  "networkCalls": [
+    {
+      "method": "POST",
+      "path": "/v1/responses",
+      "cookieAbsent": true,
+      "correctKey": true,
+      "model": "optional-fixture-model"
+    }
+  ],
+  "passed": true,
+  "packageSha256": "AF0D55F6BC47C2C15BF9A57B92D1CD7C7C4E9C772021622380F200C80EE4CA18",
+  "contentSha256": "6D5227F9BA464A4903B38A59EAE040B11C2013CF0641DB325996C55FFAC4836E"
+}

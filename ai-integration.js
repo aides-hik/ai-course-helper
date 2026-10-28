@@ -1,3 +1,28 @@
+  // Credentials belong to AI inference, never to media/document chapter work.
+  const aiHasConfiguredKey = (config = typeof useConfigStore === "function" ? useConfigStore() : null) => {
+    const ai = config?.ai || {};
+    const provider = ai.provider ?? "openai";
+    if (!["openai", "deepseek"].includes(provider)) return false;
+    const key = ai[provider === "deepseek" ? "deepseekApiKey" : "apiKey"];
+    return typeof key === "string" && !!key.trim();
+  };
+  const aiMissingKeyNotices = new WeakMap();
+  const aiMissingKeyFallbackOwner = {};
+  const aiLogMissingKey = (log, scope = "questions", owner = aiMissingKeyFallbackOwner) => {
+    const target = owner && ["object", "function"].includes(typeof owner) ? owner : aiMissingKeyFallbackOwner;
+    const scopes = aiMissingKeyNotices.get(target) || new Set();
+    if (scopes.has(scope)) return false;
+    scopes.add(scope);
+    aiMissingKeyNotices.set(target, scopes);
+    const message = scope === "chapter"
+      ? "AI 未配置：本页作业等待手动作答；视频、文档和其他章节任务继续处理。"
+      : scope === "video-quiz"
+        ? "AI 未配置：请手动完成视频弹题后继续播放；需要自动解题时再填写 API Key。"
+        : "AI 未配置：已保留页面已有作答，剩余题目可手动完成，或在「解题」中填写 API Key。";
+    if (typeof log === "function") log(message, "info");
+    else log?.addLog?.(message, "info");
+    return true;
+  };
   // Page controls must acknowledge a change before it is counted as filled.
   const aiOptionSelected = (element) => {
     const input = element.matches?.('input[type="radio"],input[type="checkbox"]') ? element : element.querySelector?.('input[type="radio"],input[type="checkbox"]');
@@ -272,7 +297,7 @@
     const snapshots = [];
     const verifications = [];
     const result = handler.lastSolveResult = {
-      cancelled: false, total: 0, filled: 0, complete: false, rate: 0,
+      cancelled: false, total: 0, filled: 0, complete: false, rate: 0, skippedForMissingKey: false,
       isCurrent: () => {
         try {
           return !result.cancelled && !parentContext.signal?.aborted && (parentContext.isCurrent?.() ?? true) && snapshots.length > 0 && snapshots.every(({question, element, stamp, controls}) => question.element === element && !!element?.isConnected && aiQuestionStamp(question) === stamp && aiSameQuestionControlIdentity(question, controls, handler._window));
@@ -323,7 +348,9 @@
     const initialStates = rows.map((question) => concurrentEnabled ? aiReadExistingAnswer(question, handler._window)?.state : undefined);
     let nextIndex = 0, fillTail = Promise.resolve();
     const keepExisting = (question, index) => {
-      if (!concurrentEnabled || !result.isCurrent()) return false;
+      // Without AI credentials, existing answers remain available even when
+      // the user normally prefers serial solving with replacement enabled.
+      if ((!concurrentEnabled && aiHasConfiguredKey()) || !result.isCurrent()) return false;
       const existing = aiReadExistingAnswer(question, handler._window);
       if (!existing?.complete) return false;
       question.answer = existing.values;
@@ -355,6 +382,14 @@
       const snapshot = snapshots[index], question = rows[index];
       if (!result.isCurrent()) {abortBatch(); return;}
       if (keepExisting(question, index)) return;
+      if (!aiHasConfiguredKey()) {
+        result.skippedForMissingKey = true;
+        question.answerStatus = "pending";
+        question.answerSource = "configuration";
+        question.fillError = "AI 尚未配置，可手动作答；需要自动解题时请填写 API Key。";
+        aiLogMissingKey(handler.addLog, "questions", handler._document || handler);
+        return;
+      }
       const context = createAiQuestionContext(question, batchContext, snapshot.stamp, snapshot.controls);
       contexts.push(context);
       context.signal.addEventListener("abort", abortBatch, {once: true});
@@ -368,7 +403,7 @@
         if (!values?.length) {
           question.answerStatus = "error";
           question.answer = [answerData?.error?.message || "模型未返回可用答案"];
-          handler.addLog(`第 ${index + 1} 道题未完成，请到「答题」页签查看原因`, "warning");
+          handler.addLog(`第 ${index + 1} 道题未完成，请到「解题」页签查看原因`, "warning");
           return;
         }
         question.answer = values;
@@ -402,7 +437,7 @@
         else {
           question.answerStatus = "error";
           question.answer = [error?.message || "模型请求失败，请重试"];
-          handler.addLog(`第 ${index + 1} 道题未完成，请到「答题」页签查看原因`, "warning");
+          handler.addLog(`第 ${index + 1} 道题未完成，请到「解题」页签查看原因`, "warning");
         }
       } finally {
         context.signal.removeEventListener("abort", abortBatch);

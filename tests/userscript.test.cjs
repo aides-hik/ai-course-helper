@@ -390,7 +390,7 @@ test('the installed DeepSeek adapter works with an empty OpenAI key and sends on
   assert.ok(!calls[0].data.includes('DEEPSEEK-ONLY-KEY'));
 });
 
-test('the page entry accepts only the selected provider credential and opens settings when it is missing', () => {
+test('page entry starts ordinary task logic without credentials or changing the selected tab', () => {
   function enter(ai) {
     const events = [];
     let starts = 0;
@@ -419,8 +419,14 @@ test('the page entry accepts only the selected provider credential and opens set
   const openai = enter({ provider: 'openai', apiKey: 'OPENAI-KEY', model: 'openai-model', deepseekApiKey: '', deepseekModel: '' });
   assert.equal(openai.starts, 1);
   const wrongKey = enter({ provider: 'deepseek', apiKey: 'OPENAI-KEY', model: 'openai-model', deepseekApiKey: '', deepseekModel: 'deepseek-flash' });
-  assert.equal(wrongKey.starts, 0);
-  assert.equal(wrongKey.configStore.menuIndex, '1');
+  assert.equal(wrongKey.starts, 1);
+  assert.equal(wrongKey.configStore.menuIndex, '0');
+  for (const ai of [{}, {provider:'openai',apiKey:'',model:''}, {provider:'deepseek',deepseekApiKey:''}, {provider:'other'}]) {
+    const page = enter(ai);
+    assert.equal(page.starts, 1);
+    assert.deepEqual(page.events, [true]);
+    assert.equal(page.configStore.menuIndex, '0');
+  }
 });
 
 test('model answers, explanations, errors and question titles render as text', () => {
@@ -461,7 +467,7 @@ test('failed page filling is not counted toward the submission threshold', async
 function applicationHarness() {
   const context = evaluate(
     `${section('  const aiControlVisible = ', '  const aiBlankCount = ')}
-     ${section('  const aiOptionSelected = ', '  class BaseQuestionHandler {')}
+     ${section('  const aiHasConfiguredKey = ', '  class BaseQuestionHandler {')}
      globalThis.applyAnswers = applyAiAnswers;`,
     { sleep: async () => {} }
   );
@@ -638,7 +644,7 @@ function solverHarness(overrides = {}) {
   const context = evaluate(
     `${section('  const getAnswerValues = ', '  function extractRawTextFromElement(')}
      ${section('  const aiControlVisible = ', '  const aiBlankCount = ')}
-     ${section('  const aiOptionSelected = ', '  class BaseQuestionHandler {')}
+     ${section('  const aiHasConfiguredKey = ', '  class BaseQuestionHandler {')}
      globalThis.solve = solveAiQuestions;
      globalThis.applyAnswers = applyAiAnswers;
      globalThis.questionContext = createAiQuestionContext;`,
@@ -650,7 +656,7 @@ function solverHarness(overrides = {}) {
       sleep: async () => {},
       aiWaitForDelay: async (_seconds, context) => context.isCurrent(),
       vue: { reactive: (value) => value },
-      useConfigStore: () => configurationHarness().config,
+      useConfigStore: () => {const config=configurationHarness().config; config.ai.apiKey='FAKE-SOLVER-TEST-KEY'; return config;},
       getAnswer: async (question) => modelAnswer(question),
       ...overrides
     }
@@ -810,6 +816,7 @@ test('dynamic verification rereads immutable answer expectations without resendi
 
 test('turning off Wisdom Tree automatic switching during its delay prevents navigation', async () => {
   const config=configurationHarness().config;
+  config.ai.apiKey='FAKE-WISDOM-TREE-TEST-KEY';
   config.platformParams.zhs.parts[0].params[0].value=true;
   const question=liveQuestion('A Wisdom Tree question');
   question.workType='zhs';

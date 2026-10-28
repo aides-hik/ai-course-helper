@@ -1,0 +1,95 @@
+{
+  "realExtension": true,
+  "tampermonkey": false,
+  "offline": true,
+  "scenarios": [
+    "native-extension-mounts-from-local-resources-without-GM",
+    "nonce-restricted-course-CSP-runs-the-native-content-app-without-eval",
+    "page-world-has-no-GM-api-keys-or-extension-library-globals",
+    "real-controls-save-and-reload-key-model-custom-URL-and-concurrency-2500",
+    "model-button-fetches-from-native-offscreen-network-worker",
+    "native-POST-model-answer-fills-actual-course-radio-option",
+    "isolated-model-answer-fills-and-verifies-MAIN-UEditor",
+    "fixed-page-save-and-next-actions-work-arbitrary-function-is-rejected",
+    "real-320px-extension-layout-keeps-save-visible-at-all-scroll-positions",
+    "rapid-local-writes-and-independent-two-tab-edits-preserve-final-credentials",
+    "actual-popup-buttons-expand-the-panel-and-refresh-current-course",
+    "arbitrary-unconfigured-URL-rejected",
+    "credential-bearing-redirect-rejected",
+    "response-size-limit-enforced",
+    "model-response-after-33-seconds-survives-service-worker-lifetime",
+    "in-flight-native-request-aborts",
+    "navigation-disconnects-the-content-request-port",
+    "all-real-model-requests-omit-page-cookies-and-use-correct-provider-key"
+  ],
+  "errors": [],
+  "screenshot": "extension-native-desktop.png",
+  "narrow": {
+    "viewport": 320,
+    "panelWidth": 304,
+    "pinnedSave": true
+  },
+  "longRequestMilliseconds": 33085,
+  "networkCalls": [
+    {
+      "method": "GET",
+      "path": "/v1/models",
+      "cookieAbsent": true,
+      "authorizationCorrect": true
+    },
+    {
+      "method": "POST",
+      "path": "/v1/responses",
+      "cookieAbsent": true,
+      "authorizationCorrect": true
+    },
+    {
+      "method": "POST",
+      "path": "/v1/responses",
+      "cookieAbsent": true,
+      "authorizationCorrect": true
+    },
+    {
+      "method": "GET",
+      "path": "/v1/models",
+      "cookieAbsent": true,
+      "authorizationCorrect": true
+    },
+    {
+      "method": "GET",
+      "path": "/redirect/models",
+      "cookieAbsent": true,
+      "authorizationCorrect": true
+    },
+    {
+      "method": "GET",
+      "path": "/oversize/models",
+      "cookieAbsent": true,
+      "authorizationCorrect": true
+    },
+    {
+      "method": "POST",
+      "path": "/slow/responses",
+      "cookieAbsent": true,
+      "authorizationCorrect": true
+    },
+    {
+      "method": "GET",
+      "path": "/abort/models",
+      "cookieAbsent": true,
+      "authorizationCorrect": true
+    },
+    {
+      "method": "GET",
+      "path": "/close/models",
+      "cookieAbsent": true,
+      "authorizationCorrect": true
+    }
+  ],
+  "passed": true,
+  "extensionId": "ceafckbpiahljlkcppiecdffgaefmpin",
+  "manifestSha256": "22D4A84D3B077FD8E1638E0762FC4F47669553985C8CF790E8F984F9C8F03F9A",
+  "contentSha256": "809F041D26673E57628D3799F9B8E82597FFDD5AD4628345042D01193413CB84",
+  "pageMainSha256": "0F04438F12FEEE9AA884223EDE17A08C89D4D6654032EC8D569C89A2BE3F016B",
+  "packageSha256": "63AEA83D98B0BA4B230DCCF0D15E07EC4D220F0A203E27B21ADD4217B6B51821"
+}

@@ -1,1 +1,3 @@
 * text=auto eol=lf
+# Keep upstream whitespace in vendored files so their recorded hashes stay valid.
+extension/vendor/* -whitespace

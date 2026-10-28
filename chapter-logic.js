@@ -317,10 +317,10 @@
       if (!context.isCurrent() || taskId !== currentWatchIframeTaskId || navigationPending) return;
       const complete = canAdvanceChapter(root);
       logChapterDiagnostics(root);
-      const message = complete ? "平台已确认本页任务完成" : "本页仍有未确认完成的任务，请核对平台状态";
+      const message = complete ? "平台已确认本页任务完成" : "本页任务仍在处理中，完成后继续按设置切换。";
       if (message !== lastCompletionMessage) {
         lastCompletionMessage = message;
-        logStore.addLog(message, complete ? "success" : "warning");
+        logStore.addLog(message, complete ? "success" : "info");
       }
       if (!complete || !configStore.platformParams.cx.parts[0].params[1].value || Date.now() - lastFrameChange < 1500) return;
       const before = chapterSnapshot(root);
@@ -442,13 +442,13 @@
         })).subscribe({
           complete: async () => {
             try { await checkChapterCompletion(documentElement, context, thisTaskId); }
-            catch (error) { if (context.isCurrent()) logStore.addLog(`无法确认章节完成状态：${String(error)}`, "warning"); }
+            catch { if (context.isCurrent()) logStore.addLog("章节状态读取失败，下次扫描会重试；持续异常时请刷新课程页。", "warning"); }
             finally { release(); }
           },
-          error: (error) => {
+          error: () => {
             release();
             if (context.isCurrent()) {
-              logStore.addLog(`任务处理失败：${String(error)}`, "danger");
+              logStore.addLog("当前任务处理失败，请检查播放器或任务页面状态后重试。", "danger");
             }
           }
         });
@@ -535,7 +535,12 @@
                   isCurrent: () => !settled && context.isCurrent() && !isFinishedTask(iframe),
                   isEnabled: () => {
                     var _a;
-                    return ((_a = configStore.platformParams.cx.parts[0].params.find((param) => param.name === VIDEO_QUIZ_SETTING)) == null ? void 0 : _a.value) !== false;
+                    const enabled = ((_a = configStore.platformParams.cx.parts[0].params.find((param) => param.name === VIDEO_QUIZ_SETTING)) == null ? void 0 : _a.value) !== false;
+                    if (enabled && typeof aiHasConfiguredKey === "function" && !aiHasConfiguredKey(configStore)) {
+                      if (quiz?.hasActiveQuiz()) aiLogMissingKey(logStore, "video-quiz", iframeDocument);
+                      return false;
+                    }
+                    return enabled;
                   },
                   delayMs: () => Number(configStore.otherParams.params[0].value) * 1e3,
                   search: (question, searchContext) => getAnswer(question, { ...searchContext, skipDelay: true }),
@@ -585,12 +590,16 @@
     const processWork = async (iframe, iframeDocument, iframeWindow, context) => {
       if (!context.isCurrent())
         return { state: "cancelled" };
-      configStore.menuIndex = ANSWER_TAB_NAME2;
-      logStore.addLog("发现一个作业，正在解析", "warning");
       if (isWorkConfirmed(iframe, iframeDocument)) {
         logStore.addLog("作业已经完成，跳过", "success");
         return { state: "completed" };
       }
+      if (typeof aiHasConfiguredKey === "function" && !aiHasConfiguredKey(configStore)) {
+        aiLogMissingKey(logStore, "chapter", iframeDocument);
+        return {state: "waiting-for-ai", isCurrent: context.isCurrent};
+      }
+      configStore.menuIndex = ANSWER_TAB_NAME2;
+      logStore.addLog("发现一个作业，正在解析", "primary");
       decrypt(iframeDocument);
       logStore.addLog(`题目列表获取成功`, "primary");
       const handler = new CxQuestionHandler("zj", iframe);
@@ -619,6 +628,10 @@
         return {state: context.isCurrent() ? "needs-review" : "cancelled", isCurrent: logicalCurrent};
       }
       const result = handler.lastSolveResult;
+      if (result?.skippedForMissingKey) {
+        if (workKey) attempts.delete(workKey);
+        return {state: "waiting-for-ai", isCurrent: logicalCurrent};
+      }
       const isCurrent = () => context.isCurrent() && !!result && !result.cancelled && result.isCurrent();
       if (!isCurrent()) {attempt.state = "cancelled"; return { state: "cancelled" };}
       if (!result.total) {if (workKey) attempts.delete(workKey); return { state: "waiting" };}
@@ -712,7 +725,7 @@
         return runningTask;
       const taskPromise = Promise.resolve().then(task).then((result) => {
         const outcome = result || { state: "waiting" };
-        if (!["waiting", "cancelled"].includes(outcome.state)) attempted.set(iframeDocument, outcome);
+        if (!["waiting", "waiting-for-ai", "cancelled"].includes(outcome.state)) attempted.set(iframeDocument, outcome);
         return outcome;
       }).finally(() => {
         running.delete(iframeDocument);

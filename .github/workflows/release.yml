@@ -1,0 +1,58 @@
+name: Build and publish release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+      - name: Build from local pinned dependencies
+        run: |
+          python build_ai.py
+          python build_extension.py
+          python tools/check_release.py
+      - name: Check syntax and extension regressions
+        run: |
+          node --check ai-course-helper.user.js
+          node --check dist/ai-course-helper-extension/content.js
+          node --check dist/ai-course-helper-extension/page-main.js
+          node --test tests/build.test.cjs tests/extension-build.test.cjs tests/extension-bootstrap.test.cjs tests/extension-network.test.cjs tests/extension-page-bridge.test.cjs tests/extension-updates.test.cjs tests/log-presentation.test.cjs tests/optional-ai.test.cjs
+      - name: Publish the verified stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          gh release create "$RELEASE_TAG" \
+            "dist/ai-course-helper-extension-${version}.zip" \
+            ai-course-helper.user.js \
+            dist/SHA256SUMS \
+            --verify-tag \
+            --draft \
+            --title "AI 网课学习助手 ${RELEASE_TAG}" \
+            --notes-file dist/release-notes.md
+          gh release edit "$RELEASE_TAG" --draft=false --latest --verify-tag

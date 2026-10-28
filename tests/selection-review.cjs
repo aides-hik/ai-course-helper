@@ -14,7 +14,7 @@ const images = fs.readFileSync(path.join(root,'ai-images.js'),'utf8');
 const helpers = adapter.slice(adapter.indexOf('  const aiControlVisible = '),adapter.indexOf('  const aiBlankCount = '));
 const setup = `
 const sleep=async()=>{},vue={reactive:value=>value};
-const config={ai:{concurrentEnabled:true,concurrency:2}};
+const config={ai:{provider:'openai',apiKey:'FAKE-SELECTION-REVIEW-KEY',concurrentEnabled:true,concurrency:2}};
 const useConfigStore=()=>config,aiConcurrencyLimit=()=>config.ai.concurrency;
 const getAnswerValues=response=>response.values;
 let getAnswer=async(question)=>({values:['Option A'],meta:{}});

@@ -15,7 +15,7 @@ def section(start, end):
 
 
 store = section("  const formatDateTime = ", "  const useQuestionStore = ")
-component = section("  const getNotice = ", "  const _hoisted_1$4 = ")
+component = section("  const getNotice = ", "  const _hoisted_1$4 = ").replace("/* @ai-helper:LOG_PRESENTATION@ */", (ROOT / "log-presentation.js").read_text(encoding="utf-8"))
 cache = ROOT / "tests" / "browser-fixture" / "mooc2" / "work"
 tags = []
 for index in range(4):
