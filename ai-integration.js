@@ -273,7 +273,7 @@
       };
     } catch {return null;}
   };
-  const createAiQuestionContext = (question, parentContext = {}, expectedStamp = aiQuestionStamp(question), expectedControls = aiQuestionControlIdentity(question)) => {
+  const createAiQuestionContext = (question, parentContext = {}, expectedStamp = aiQuestionStamp(question), expectedControls = aiQuestionControlIdentity(question), options = {}) => {
     const controller = new AbortController();
     const isCurrent = () => {
       try {
@@ -284,11 +284,13 @@
     };
     const abort = () => controller.abort();
     parentContext.signal?.addEventListener("abort", abort, {once: true});
-    const timer = setInterval(() => {if (!isCurrent()) abort();}, 250);
+    // A batch owns one whole-page monitor. Standalone question callers still
+    // receive their independent monitor and the same synchronous identity check.
+    const timer = options.monitor === false ? null : setInterval(() => {if (!isCurrent()) abort();}, 250);
     if (!isCurrent()) abort();
     return {
       signal: controller.signal, isCurrent,
-      dispose() {clearInterval(timer); parentContext.signal?.removeEventListener("abort", abort);}
+      dispose() {if (timer !== null) clearInterval(timer); parentContext.signal?.removeEventListener("abort", abort);}
     };
   };
   const solveAiQuestions = async (handler, parentContext = {}) => {
@@ -343,14 +345,26 @@
     const rows = snapshots.map(({question}) => vue.reactive({...question, answerStatus: "pending"}));
     rows.forEach((question) => handler.addQuestion(question));
     const abortBatch = () => {result.cancelled = true; batchController.abort();};
-    const batchContext = {signal: batchController.signal, isCurrent: result.isCurrent};
-    const contexts = [];
+    const batchIsCurrent = () => {
+      try {return !result.cancelled && !batchController.signal.aborted && !parentContext.signal?.aborted && (parentContext.isCurrent?.() ?? true);}
+      catch {return false;}
+    };
+    const questionIsCurrent = (question, index) => {
+      const snapshot = snapshots[index];
+      try {
+        return batchIsCurrent() && snapshot.question.element === snapshot.element && question.element === snapshot.element && !!snapshot.element?.isConnected && aiQuestionStamp(question) === snapshot.stamp && aiSameQuestionControlIdentity(question, snapshot.controls, handler._window);
+      } catch {return false;}
+    };
+    // Network polling needs the current question, not a recursively repeated
+    // scan of every sibling. Writes below retain a full synchronous batch fence.
+    const batchContext = {signal: batchController.signal, isCurrent: batchIsCurrent};
+    const contexts = new Set();
     const initialStates = rows.map((question) => concurrentEnabled ? aiReadExistingAnswer(question, handler._window)?.state : undefined);
     let nextIndex = 0, fillTail = Promise.resolve();
     const keepExisting = (question, index) => {
       // Without AI credentials, existing answers remain available even when
       // the user normally prefers serial solving with replacement enabled.
-      if ((!concurrentEnabled && aiHasConfiguredKey()) || !result.isCurrent()) return false;
+      if ((!concurrentEnabled && aiHasConfiguredKey()) || !questionIsCurrent(question, index)) return false;
       const existing = aiReadExistingAnswer(question, handler._window);
       if (!existing?.complete) return false;
       question.answer = existing.values;
@@ -380,7 +394,7 @@
     });
     const solveOne = async (index) => {
       const snapshot = snapshots[index], question = rows[index];
-      if (!result.isCurrent()) {abortBatch(); return;}
+      if (!questionIsCurrent(question, index)) {abortBatch(); return;}
       if (keepExisting(question, index)) return;
       if (!aiHasConfiguredKey()) {
         result.skippedForMissingKey = true;
@@ -390,8 +404,8 @@
         aiLogMissingKey(handler.addLog, "questions", handler._document || handler);
         return;
       }
-      const context = createAiQuestionContext(question, batchContext, snapshot.stamp, snapshot.controls);
-      contexts.push(context);
+      const context = createAiQuestionContext(question, batchContext, snapshot.stamp, snapshot.controls, {monitor: false});
+      contexts.add(context);
       context.signal.addEventListener("abort", abortBatch, {once: true});
       try {
         if (!context.isCurrent()) {abortBatch(); return;}
@@ -409,7 +423,11 @@
         question.answer = values;
         question.aiExplanation = answerData.meta?.explanation || "";
         const fill = fillTail.then(async () => {
-          if (!context.isCurrent()) {abortBatch(); return;}
+          // Keep this synchronous for every write and every click inside the
+          // answer applicator: a sibling changing in the same call stack must
+          // still stop the remaining mutations, without waiting for a timer.
+          const writeIsCurrent = () => result.isCurrent() && context.isCurrent();
+          if (!writeIsCurrent()) {abortBatch(); return;}
           if (keepExisting(question, index)) return;
           if (concurrentEnabled && aiReadExistingAnswer(question, handler._window)?.state !== initialStates[index]) {
             question.answerStatus = "error";
@@ -418,8 +436,8 @@
             return;
           }
           let filled = false;
-          try {filled = await handler.fillQuestion(question, context.isCurrent);} catch {filled = false;}
-          if (!context.isCurrent()) {abortBatch(); return;}
+          try {filled = await handler.fillQuestion(question, writeIsCurrent);} catch {filled = false;}
+          if (!writeIsCurrent()) {abortBatch(); return;}
           const receipt = aiFilledAnswerReceipts.get(question);
           filled = filled && !!receipt;
           question.answerSource = "ai";
@@ -442,6 +460,7 @@
       } finally {
         context.signal.removeEventListener("abort", abortBatch);
         context.dispose();
+        contexts.delete(context);
       }
     };
     const monitor = setInterval(() => {if (!result.isCurrent()) abortBatch();}, 250);
@@ -449,10 +468,18 @@
     try {
       // Register/inspect all initial rows before any model request can change the page.
       const initiallyComplete = rows.map((question, index) => keepExisting(question, index));
+      if (!result.isCurrent()) return cancelled();
       const pending = [];
       snapshots.forEach((_, index) => {if (!initiallyComplete[index]) pending.push(index);});
       const solvePending = async () => {
-        while (!batchController.signal.aborted && nextIndex < pending.length) await solveOne(pending[nextIndex++]);
+        let first = true;
+        while (!batchController.signal.aborted && nextIndex < pending.length) {
+          // The initial workers share the initial fence above. Queued work
+          // starts only after another full check following an asynchronous gap.
+          if (!first && !result.isCurrent()) {abortBatch(); break;}
+          first = false;
+          await solveOne(pending[nextIndex++]);
+        }
       };
       const workerCount = Math.min(limit, pending.length);
       await Promise.allSettled(Array.from({length: workerCount}, solvePending));

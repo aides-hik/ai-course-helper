@@ -25,6 +25,8 @@ function section(start, end) {
     currentWatchIframeTaskId: 1,
     Date: { now: () => 2000 },
     canAdvanceChapter: () => true,
+    collectChapterState: () => ({ iframes: [] }),
+    inspectChapterCompletion: () => ({ complete: true }),
     chapterSnapshot: () => [],
     sameFrameSnapshot: () => true,
     logStore: { addLog() {} },

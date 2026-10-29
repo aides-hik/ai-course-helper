@@ -855,7 +855,8 @@
         const ai = configStore.ai || {};
         return keyReady.value ? (ai.provider === "deepseek" ? ai.deepseekModel : ai.model) || "尚未选择模型" : "仅在 AI 解题时需要配置；视频和文档正常运行。";
       });
-      const visibleLogs = vue.computed(() => logVisibleRows(__props.logList || [], logMode.value));
+      const visibleLogs = vue.computed(() => configStore.isMinus || configStore.menuIndex !== undefined && configStore.menuIndex !== "0"
+        ? [] : logVisibleRows(__props.logList || [], logMode.value));
       const clearLogs = () => {
         clearTimeout(copyResetTimer);
         logStore.clearLogs();
@@ -953,7 +954,7 @@
             onClick: handleLogClick
           }, {
             default: () => visibleLogs.value.length ? visibleLogs.value.map((item, index) =>
-                vue.createElementVNode("div", { key: index, class: "ai-log-entry", "data-type": item.type || "primary" }, [
+                vue.createElementVNode("div", { key: item.key ?? index, class: "ai-log-entry", "data-type": item.type || "primary" }, [
                   vue.createVNode(_component_el_text, {
                     class: "log-time",
                     title: item.repeat > 1 ? `首次 ${item.time}，最近 ${item.lastTime}；共 ${item.repeat} 次` : item.time,
@@ -6298,13 +6299,15 @@
         left: configStore.position.x,
         top: configStore.position.y
       });
-      const setPanelPosition = (left, top) => {
+      const setPanelPosition = (left, top, persist = true) => {
         const width = Math.min(PANEL_WIDTH, Math.max(0, window.innerWidth - 16));
         const x = Math.min(Math.max(0, window.innerWidth - width - 8), Math.max(0, Number.parseFloat(left) || 0));
         const y = Math.min(Math.max(0, window.innerHeight - MINIMIZED_PANEL_HEIGHT), Math.max(0, Number.parseFloat(top) || 0));
         moveStyle.value = {left: `${x}px`, top: `${y}px`, "--ai-panel-top": `${y}px`};
-        configStore.position.x = moveStyle.value.left;
-        configStore.position.y = moveStyle.value.top;
+        if (persist && !isDragging.value) {
+          configStore.position.x = moveStyle.value.left;
+          configStore.position.y = moveStyle.value.top;
+        }
       };
       const fitPanelToViewport = () => setPanelPosition(moveStyle.value.left, moveStyle.value.top);
       fitPanelToViewport();
@@ -6325,19 +6328,26 @@
           return;
         const x = event.clientX - offsetX.value;
         const y = event.clientY - offsetY.value;
-        setPanelPosition(x - WINDOW_EDGE_OFFSET, y - WINDOW_EDGE_OFFSET);
+        setPanelPosition(x - WINDOW_EDGE_OFFSET, y - WINDOW_EDGE_OFFSET, false);
       };
       const endDrag = () => {
+        const moved = isDragging.value;
         isDragging.value = false;
         document.removeEventListener("mousemove", drag);
         document.removeEventListener("mouseup", endDrag);
+        if (moved) {
+          configStore.position.x = moveStyle.value.left;
+          configStore.position.y = moveStyle.value.top;
+        }
       };
+      window.addEventListener("blur", endDrag);
       vue.onBeforeUnmount(() => {
         uiMounted = false;
         ++motionEpoch;
         panelMotion?.cancel();
         endDrag();
         window.removeEventListener("resize", fitPanelToViewport);
+        window.removeEventListener("blur", endDrag);
       });
       return (_ctx, _cache) => {
         const _component_el_card = vue.resolveComponent("el-card");

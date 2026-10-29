@@ -103,6 +103,7 @@
     let lastNavigationMessage = "";
     let frameNumbers = new WeakMap();
     let nextFrameNumber = 0;
+    let mutationScanTimer = null;
     const hasTaskClass = (element, name) => {
       const className = typeof element?.className === "string" ? element.className : "";
       return className.split(/\s+/).includes(name) || !!element?.classList?.contains(name);
@@ -153,8 +154,8 @@
         reason: candidates.length > 1 ? "发现多个章节主页面，无法确认当前章节，暂停自动处理"
           : !iframe ? "未找到可确认的章节主页面，等待平台加载" : "" };
     };
-    const getChapterPage = () => {
-      const { iframe } = getChapterScope();
+    const getChapterPage = (scope = getChapterScope()) => {
+      const { iframe } = scope;
       let iframeDocument = null;
       try { iframeDocument = iframe?.contentDocument || null; } catch { /* diagnosed below */ }
       return {
@@ -165,7 +166,7 @@
       };
     };
     const isSamePage = (left, right) => left.url === right.url && left.iframe === right.iframe && left.src === right.src && left.document === right.document;
-    const collectChapterFrames = (root) => {
+    const collectChapterFrames = (root, scope = getChapterScope(root)) => {
       const result = [];
       const visited = new Set();
       const visit = (iframe) => {
@@ -181,17 +182,22 @@
           // Cross-origin task frames remain in the list and block completion.
         }
       };
-      const { iframe } = getChapterScope(root);
+      const { iframe } = scope;
       if (iframe) visit(iframe);
       return result;
     };
+    // Reuse only within the current synchronous scan. Any later callback or
+    // post-delay navigation check creates a fresh collection.
+    const collectChapterState = (root, scope = getChapterScope(root)) => ({
+      scope, iframes: collectChapterFrames(root, scope)
+    });
     const isTaskFrame = (iframe) => /api\/work|modules\/(?:video|audio|ppt|doc|pdf|innerbook)/i.test(iframe.src || "") || !!getTaskIcon(iframe);
     const isWorkConfirmed = (iframe, iframeDocument) => {
       if (isFinishedTask(iframe)) return true;
       const status = iframeDocument?.querySelector?.(".work-status,.workStatus,#workStatus,[data-work-status]");
       return !!status && /^(?:已完成|待批阅|已提交)(?:\s|$)/.test((status.textContent || status.getAttribute?.("data-work-status") || "").trim());
     };
-    const chapterSnapshot = (root) => collectChapterFrames(root).map((iframe) => {
+    const chapterSnapshot = (root, iframes = collectChapterFrames(root)) => iframes.map((iframe) => {
       let doc = null;
       try { doc = iframe.contentDocument; } catch { /* inaccessible */ }
       return { iframe, doc, src: iframe.src, ready: doc?.readyState, finished: isFinishedTask(iframe) };
@@ -212,9 +218,9 @@
         return parsed.protocol === "about:" ? "about:blank/srcdoc" : parsed.protocol + "（地址已省略）";
       } catch { return "无法解析的地址（已省略）"; }
     };
-    const inspectChapterCompletion = (root) => {
-      const scope = getChapterScope(root);
-      const frames = collectChapterFrames(root).filter((iframe) => !/^javascript:/i.test(iframe.src || "")).map((iframe) => {
+    const inspectChapterCompletion = (root, collection) => {
+      const scope = collection?.scope || getChapterScope(root);
+      const frames = (collection?.iframes || collectChapterFrames(root, scope)).filter((iframe) => !/^javascript:/i.test(iframe.src || "")).map((iframe) => {
         const task = isTaskFrame(iframe);
         const marker = getTaskCompletionMarker(iframe);
         const iconInfo = getTaskIconInfo(iframe);
@@ -265,9 +271,9 @@
       lastNavigationMessage = message;
       logStore.addLog("[章节诊断] 跳章：" + message, "primary");
     };
-    const logChapterDiagnostics = (root, phase = "") => {
+    const logChapterDiagnostics = (root, phase = "", inspection, collection) => {
       try {
-        const report = inspectChapterCompletion(root);
+        const report = inspection || inspectChapterCompletion(root, collection);
         const autoNext = !!configStore.platformParams.cx.parts[0].params[1].value;
         const onlyAnswers = !!configStore.platformParams.cx.parts[0].params[2]?.value;
         const navigation = cxGetChapterNavigation(root, document);
@@ -315,15 +321,17 @@
     };
     const checkChapterCompletion = async (root, context, taskId) => {
       if (!context.isCurrent() || taskId !== currentWatchIframeTaskId || navigationPending) return;
-      const complete = canAdvanceChapter(root);
-      logChapterDiagnostics(root);
+      const collection = collectChapterState(root);
+      const report = inspectChapterCompletion(root, collection);
+      const complete = report.complete;
+      logChapterDiagnostics(root, "", report);
       const message = complete ? "平台已确认本页任务完成" : "本页任务仍在处理中，完成后继续按设置切换。";
       if (message !== lastCompletionMessage) {
         lastCompletionMessage = message;
         logStore.addLog(message, complete ? "success" : "info");
       }
       if (!complete || !configStore.platformParams.cx.parts[0].params[1].value || Date.now() - lastFrameChange < 1500) return;
-      const before = chapterSnapshot(root);
+      const before = chapterSnapshot(root, collection.iframes);
       const navigation = cxGetChapterNavigation(root, document);
       const button = navigation.element;
       if (!button) return;
@@ -355,10 +363,13 @@
         logChapterNavigation("已取消：自动跳章开关关闭");
         return;
       }
-      if (!sameFrameSnapshot(before, chapterSnapshot(root)) || !canAdvanceChapter(root)) {
+      const afterCollection = collectChapterState(root);
+      const after = chapterSnapshot(root, afterCollection.iframes);
+      const afterReport = inspectChapterCompletion(root, afterCollection);
+      if (!sameFrameSnapshot(before, after) || !afterReport.complete) {
         navigationPending = false;
         logChapterNavigation("已取消：等待期间页面、任务或完成状态发生变化，将重新检查");
-        logChapterDiagnostics(root);
+        logChapterDiagnostics(root, "", afterReport);
         return;
       }
       const currentNavigation = cxGetChapterNavigation(root, document);
@@ -383,7 +394,13 @@
       var _a, _b;
       if (disposed)
         return;
-      const page = getChapterPage();
+      if (mutationScanTimer !== null) {
+        clearTimeout(mutationScanTimer);
+        mutationScanTimer = null;
+      }
+      const root = document.documentElement;
+      const scope = getChapterScope(root);
+      const page = getChapterPage(scope);
       const changed = !currentPage || !isSamePage(currentPage, page);
       if (changed) {
         (_a = currentPage == null ? void 0 : currentPage.iframe) == null ? void 0 : _a.removeEventListener("load", onRootIframeLoad);
@@ -408,29 +425,29 @@
         (_b = page.iframe) == null ? void 0 : _b.addEventListener("load", onRootIframeLoad);
       }
       if (!page.iframe || !page.document || page.document.readyState !== "complete" || page.document.URL === "about:blank") {
-        logChapterDiagnostics(document.documentElement, "等待章节主页面加载");
+        logChapterDiagnostics(root, "等待章节主页面加载", null, {scope});
         return;
       }
-      const frames = chapterSnapshot(document.documentElement);
+      const collection = collectChapterState(root, scope);
+      const frames = chapterSnapshot(root, collection.iframes);
       if (!sameFrameSnapshot(lastFrames, frames)) {
         lastFrames = frames;
         lastFrameChange = Date.now();
       }
-      logChapterDiagnostics(document.documentElement);
+      logChapterDiagnostics(root, "", null, collection);
       if (activeScan) return;
       const signal = chapterController.signal;
-      watchIframe(document.documentElement, {
+      watchIframe(root, {
         signal,
         // 直接检查页面，避免在轮询发现切换之前，旧请求已返回。
         isCurrent: () => !signal.aborted && isSamePage(page, getChapterPage())
-      });
+      }, collection.iframes);
     };
-    const watchIframe = (documentElement, context) => {
+    const watchIframe = (documentElement, context, allIframes = collectChapterFrames(documentElement)) => {
       const thisTaskId = currentWatchIframeTaskId;
       const scan = {};
       activeScan = scan;
       const release = () => { if (activeScan === scan) activeScan = null; };
-      const allIframes = collectChapterFrames(documentElement);
         rxjs.from(allIframes).pipe(concatMap((iframe) => {
           if (thisTaskId !== currentWatchIframeTaskId || !context.isCurrent())
             return Promise.resolve();
@@ -825,11 +842,21 @@
     init();
     processIframeTask();
     const intervalId = setInterval(processIframeTask, 500);
-    const observer = new MutationObserver(() => processIframeTask());
+    const observer = new MutationObserver(() => {
+      if (disposed || mutationScanTimer !== null) return;
+      // A timeout works in background tabs too; rAF alone could stop scanning.
+      // The 500 ms poll remains a fallback for nested document changes.
+      mutationScanTimer = setTimeout(() => {
+        mutationScanTimer = null;
+        processIframeTask();
+      }, 25);
+    });
     observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["src"] });
     vue.onBeforeUnmount(() => {
       var _a;
       disposed = true;
+      if (mutationScanTimer !== null) clearTimeout(mutationScanTimer);
+      mutationScanTimer = null;
       clearInterval(intervalId);
       observer.disconnect();
       (_a = currentPage == null ? void 0 : currentPage.iframe) == null ? void 0 : _a.removeEventListener("load", onRootIframeLoad);

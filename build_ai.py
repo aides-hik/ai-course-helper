@@ -2,7 +2,7 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "0.9.2"
+VERSION = "0.9.3"
 MODULES = {
     "CONFIG_STORAGE": "config-storage.js",
     "TEXT_EXTRACTORS": "text-extraction.js",

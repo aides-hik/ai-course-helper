@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         网课学习助手 · OpenAI / DeepSeek 解题版
 // @namespace    local.openai.course-helper
-// @version      0.9.2
+// @version      0.9.3
 // @description  超星/智慧树学习助手，支持 OpenAI / DeepSeek 文字及图片解题、可配置并发，默认关闭自动提交。
 // @license      MIT
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50' y='54' text-anchor='middle' dominant-baseline='central' font-size='82' font-family='Apple Color Emoji,Segoe UI Emoji,Noto Color Emoji,sans-serif'%3E%F0%9F%92%AF%3C/text%3E%3C/svg%3E
@@ -2112,18 +2112,39 @@
     const match = String(text || "").match(/^(\d{2}):(\d{2}):(\d{2})$/);
     return match ? Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]) : null;
   };
+  // Entries are append-only in the log store. Cache their display projection,
+  // while checking primitives so an explicitly edited entry updates immediately.
+  // Weak keys let evicted history and its presentation data be collected.
+  const logPresentationCache = new WeakMap();
+  let logPresentationSequence = 0;
+  const logPresentation = (entry) => {
+    const message = logMessage(entry), type = entry.type, time = entry.time;
+    const previous = logPresentationCache.get(entry);
+    if (previous && previous.message === message && previous.type === type && previous.time === time) return previous;
+    const detailOnly = logDetailOnly(entry), reminder = !detailOnly && logReminder(entry);
+    const briefType = /^\[章节诊断\] 当前原因：/.test(message) && !reminder ? "info" : type;
+    const common = {key: previous?.brief.key ?? ++logPresentationSequence, message, time, repeat: 1, lastTime: time};
+    const result = {message, type, time, clock: logClock(time), detailOnly, reminder,
+      detail: Object.freeze({...common, type, displayMessage: message}),
+      brief: Object.freeze({...common, type: briefType, displayMessage: logDisplayMessage(entry, "brief")})};
+    logPresentationCache.set(entry, result);
+    return result;
+  };
   const logVisibleRows = (logs, mode = "brief") => {
     const rows = [];
+    let previousClock = null;
     for (const entry of logs || []) {
-      if (mode !== "detail" && (logDetailOnly(entry) || mode === "reminders" && !logReminder(entry))) continue;
-      const displayMessage = logDisplayMessage(entry, mode);
-      const type = mode !== "detail" && /^\[章节诊断\] 当前原因：/.test(logMessage(entry)) && !logReminder(entry) ? "info" : entry.type;
+      const presentation = logPresentation(entry);
+      if (mode !== "detail" && (presentation.detailOnly || mode === "reminders" && !presentation.reminder)) continue;
+      const row = mode === "detail" ? presentation.detail : presentation.brief;
       const previous = rows[rows.length - 1];
-      const before = logClock(previous?.lastTime), now = logClock(entry.time);
+      const before = previousClock, now = presentation.clock;
       const elapsed = before === null || now === null ? Infinity : (now - before + 86400) % 86400;
-      if (mode !== "detail" && previous?.displayMessage === displayMessage && previous.type === type && elapsed <= 60) {
-        previous.repeat += 1; previous.lastTime = entry.time;
-      } else rows.push({...entry, type, displayMessage, repeat: 1, lastTime: entry.time});
+      if (mode !== "detail" && previous?.displayMessage === row.displayMessage && previous.type === row.type && elapsed <= 60) {
+        // Never mutate a shared cached row, including a row from an older view.
+        rows[rows.length - 1] = {...previous, repeat: previous.repeat + 1, lastTime: entry.time};
+      } else rows.push(row);
+      previousClock = now;
     }
     return rows;
   };
@@ -2201,7 +2222,8 @@
         const ai = configStore.ai || {};
         return keyReady.value ? (ai.provider === "deepseek" ? ai.deepseekModel : ai.model) || "尚未选择模型" : "仅在 AI 解题时需要配置；视频和文档正常运行。";
       });
-      const visibleLogs = vue.computed(() => logVisibleRows(__props.logList || [], logMode.value));
+      const visibleLogs = vue.computed(() => configStore.isMinus || configStore.menuIndex !== undefined && configStore.menuIndex !== "0"
+        ? [] : logVisibleRows(__props.logList || [], logMode.value));
       const clearLogs = () => {
         clearTimeout(copyResetTimer);
         logStore.clearLogs();
@@ -2299,7 +2321,7 @@
             onClick: handleLogClick
           }, {
             default: () => visibleLogs.value.length ? visibleLogs.value.map((item, index) =>
-                vue.createElementVNode("div", { key: index, class: "ai-log-entry", "data-type": item.type || "primary" }, [
+                vue.createElementVNode("div", { key: item.key ?? index, class: "ai-log-entry", "data-type": item.type || "primary" }, [
                   vue.createVNode(_component_el_text, {
                     class: "log-time",
                     title: item.repeat > 1 ? `首次 ${item.time}，最近 ${item.lastTime}；共 ${item.repeat} 次` : item.time,
@@ -7258,7 +7280,7 @@
       };
     } catch {return null;}
   };
-  const createAiQuestionContext = (question, parentContext = {}, expectedStamp = aiQuestionStamp(question), expectedControls = aiQuestionControlIdentity(question)) => {
+  const createAiQuestionContext = (question, parentContext = {}, expectedStamp = aiQuestionStamp(question), expectedControls = aiQuestionControlIdentity(question), options = {}) => {
     const controller = new AbortController();
     const isCurrent = () => {
       try {
@@ -7269,11 +7291,13 @@
     };
     const abort = () => controller.abort();
     parentContext.signal?.addEventListener("abort", abort, {once: true});
-    const timer = setInterval(() => {if (!isCurrent()) abort();}, 250);
+    // A batch owns one whole-page monitor. Standalone question callers still
+    // receive their independent monitor and the same synchronous identity check.
+    const timer = options.monitor === false ? null : setInterval(() => {if (!isCurrent()) abort();}, 250);
     if (!isCurrent()) abort();
     return {
       signal: controller.signal, isCurrent,
-      dispose() {clearInterval(timer); parentContext.signal?.removeEventListener("abort", abort);}
+      dispose() {if (timer !== null) clearInterval(timer); parentContext.signal?.removeEventListener("abort", abort);}
     };
   };
   const solveAiQuestions = async (handler, parentContext = {}) => {
@@ -7328,14 +7352,26 @@
     const rows = snapshots.map(({question}) => vue.reactive({...question, answerStatus: "pending"}));
     rows.forEach((question) => handler.addQuestion(question));
     const abortBatch = () => {result.cancelled = true; batchController.abort();};
-    const batchContext = {signal: batchController.signal, isCurrent: result.isCurrent};
-    const contexts = [];
+    const batchIsCurrent = () => {
+      try {return !result.cancelled && !batchController.signal.aborted && !parentContext.signal?.aborted && (parentContext.isCurrent?.() ?? true);}
+      catch {return false;}
+    };
+    const questionIsCurrent = (question, index) => {
+      const snapshot = snapshots[index];
+      try {
+        return batchIsCurrent() && snapshot.question.element === snapshot.element && question.element === snapshot.element && !!snapshot.element?.isConnected && aiQuestionStamp(question) === snapshot.stamp && aiSameQuestionControlIdentity(question, snapshot.controls, handler._window);
+      } catch {return false;}
+    };
+    // Network polling needs the current question, not a recursively repeated
+    // scan of every sibling. Writes below retain a full synchronous batch fence.
+    const batchContext = {signal: batchController.signal, isCurrent: batchIsCurrent};
+    const contexts = new Set();
     const initialStates = rows.map((question) => concurrentEnabled ? aiReadExistingAnswer(question, handler._window)?.state : undefined);
     let nextIndex = 0, fillTail = Promise.resolve();
     const keepExisting = (question, index) => {
       // Without AI credentials, existing answers remain available even when
       // the user normally prefers serial solving with replacement enabled.
-      if ((!concurrentEnabled && aiHasConfiguredKey()) || !result.isCurrent()) return false;
+      if ((!concurrentEnabled && aiHasConfiguredKey()) || !questionIsCurrent(question, index)) return false;
       const existing = aiReadExistingAnswer(question, handler._window);
       if (!existing?.complete) return false;
       question.answer = existing.values;
@@ -7365,7 +7401,7 @@
     });
     const solveOne = async (index) => {
       const snapshot = snapshots[index], question = rows[index];
-      if (!result.isCurrent()) {abortBatch(); return;}
+      if (!questionIsCurrent(question, index)) {abortBatch(); return;}
       if (keepExisting(question, index)) return;
       if (!aiHasConfiguredKey()) {
         result.skippedForMissingKey = true;
@@ -7375,8 +7411,8 @@
         aiLogMissingKey(handler.addLog, "questions", handler._document || handler);
         return;
       }
-      const context = createAiQuestionContext(question, batchContext, snapshot.stamp, snapshot.controls);
-      contexts.push(context);
+      const context = createAiQuestionContext(question, batchContext, snapshot.stamp, snapshot.controls, {monitor: false});
+      contexts.add(context);
       context.signal.addEventListener("abort", abortBatch, {once: true});
       try {
         if (!context.isCurrent()) {abortBatch(); return;}
@@ -7394,7 +7430,11 @@
         question.answer = values;
         question.aiExplanation = answerData.meta?.explanation || "";
         const fill = fillTail.then(async () => {
-          if (!context.isCurrent()) {abortBatch(); return;}
+          // Keep this synchronous for every write and every click inside the
+          // answer applicator: a sibling changing in the same call stack must
+          // still stop the remaining mutations, without waiting for a timer.
+          const writeIsCurrent = () => result.isCurrent() && context.isCurrent();
+          if (!writeIsCurrent()) {abortBatch(); return;}
           if (keepExisting(question, index)) return;
           if (concurrentEnabled && aiReadExistingAnswer(question, handler._window)?.state !== initialStates[index]) {
             question.answerStatus = "error";
@@ -7403,8 +7443,8 @@
             return;
           }
           let filled = false;
-          try {filled = await handler.fillQuestion(question, context.isCurrent);} catch {filled = false;}
-          if (!context.isCurrent()) {abortBatch(); return;}
+          try {filled = await handler.fillQuestion(question, writeIsCurrent);} catch {filled = false;}
+          if (!writeIsCurrent()) {abortBatch(); return;}
           const receipt = aiFilledAnswerReceipts.get(question);
           filled = filled && !!receipt;
           question.answerSource = "ai";
@@ -7427,6 +7467,7 @@
       } finally {
         context.signal.removeEventListener("abort", abortBatch);
         context.dispose();
+        contexts.delete(context);
       }
     };
     const monitor = setInterval(() => {if (!result.isCurrent()) abortBatch();}, 250);
@@ -7434,10 +7475,18 @@
     try {
       // Register/inspect all initial rows before any model request can change the page.
       const initiallyComplete = rows.map((question, index) => keepExisting(question, index));
+      if (!result.isCurrent()) return cancelled();
       const pending = [];
       snapshots.forEach((_, index) => {if (!initiallyComplete[index]) pending.push(index);});
       const solvePending = async () => {
-        while (!batchController.signal.aborted && nextIndex < pending.length) await solveOne(pending[nextIndex++]);
+        let first = true;
+        while (!batchController.signal.aborted && nextIndex < pending.length) {
+          // The initial workers share the initial fence above. Queued work
+          // starts only after another full check following an asynchronous gap.
+          if (!first && !result.isCurrent()) {abortBatch(); break;}
+          first = false;
+          await solveOne(pending[nextIndex++]);
+        }
       };
       const workerCount = Math.min(limit, pending.length);
       await Promise.allSettled(Array.from({length: workerCount}, solvePending));
@@ -7872,6 +7921,7 @@
     let lastNavigationMessage = "";
     let frameNumbers = new WeakMap();
     let nextFrameNumber = 0;
+    let mutationScanTimer = null;
     const hasTaskClass = (element, name) => {
       const className = typeof element?.className === "string" ? element.className : "";
       return className.split(/\s+/).includes(name) || !!element?.classList?.contains(name);
@@ -7922,8 +7972,8 @@
         reason: candidates.length > 1 ? "发现多个章节主页面，无法确认当前章节，暂停自动处理"
           : !iframe ? "未找到可确认的章节主页面，等待平台加载" : "" };
     };
-    const getChapterPage = () => {
-      const { iframe } = getChapterScope();
+    const getChapterPage = (scope = getChapterScope()) => {
+      const { iframe } = scope;
       let iframeDocument = null;
       try { iframeDocument = iframe?.contentDocument || null; } catch { /* diagnosed below */ }
       return {
@@ -7934,7 +7984,7 @@
       };
     };
     const isSamePage = (left, right) => left.url === right.url && left.iframe === right.iframe && left.src === right.src && left.document === right.document;
-    const collectChapterFrames = (root) => {
+    const collectChapterFrames = (root, scope = getChapterScope(root)) => {
       const result = [];
       const visited = new Set();
       const visit = (iframe) => {
@@ -7950,17 +8000,22 @@
           // Cross-origin task frames remain in the list and block completion.
         }
       };
-      const { iframe } = getChapterScope(root);
+      const { iframe } = scope;
       if (iframe) visit(iframe);
       return result;
     };
+    // Reuse only within the current synchronous scan. Any later callback or
+    // post-delay navigation check creates a fresh collection.
+    const collectChapterState = (root, scope = getChapterScope(root)) => ({
+      scope, iframes: collectChapterFrames(root, scope)
+    });
     const isTaskFrame = (iframe) => /api\/work|modules\/(?:video|audio|ppt|doc|pdf|innerbook)/i.test(iframe.src || "") || !!getTaskIcon(iframe);
     const isWorkConfirmed = (iframe, iframeDocument) => {
       if (isFinishedTask(iframe)) return true;
       const status = iframeDocument?.querySelector?.(".work-status,.workStatus,#workStatus,[data-work-status]");
       return !!status && /^(?:已完成|待批阅|已提交)(?:\s|$)/.test((status.textContent || status.getAttribute?.("data-work-status") || "").trim());
     };
-    const chapterSnapshot = (root) => collectChapterFrames(root).map((iframe) => {
+    const chapterSnapshot = (root, iframes = collectChapterFrames(root)) => iframes.map((iframe) => {
       let doc = null;
       try { doc = iframe.contentDocument; } catch { /* inaccessible */ }
       return { iframe, doc, src: iframe.src, ready: doc?.readyState, finished: isFinishedTask(iframe) };
@@ -7981,9 +8036,9 @@
         return parsed.protocol === "about:" ? "about:blank/srcdoc" : parsed.protocol + "（地址已省略）";
       } catch { return "无法解析的地址（已省略）"; }
     };
-    const inspectChapterCompletion = (root) => {
-      const scope = getChapterScope(root);
-      const frames = collectChapterFrames(root).filter((iframe) => !/^javascript:/i.test(iframe.src || "")).map((iframe) => {
+    const inspectChapterCompletion = (root, collection) => {
+      const scope = collection?.scope || getChapterScope(root);
+      const frames = (collection?.iframes || collectChapterFrames(root, scope)).filter((iframe) => !/^javascript:/i.test(iframe.src || "")).map((iframe) => {
         const task = isTaskFrame(iframe);
         const marker = getTaskCompletionMarker(iframe);
         const iconInfo = getTaskIconInfo(iframe);
@@ -8034,9 +8089,9 @@
       lastNavigationMessage = message;
       logStore.addLog("[章节诊断] 跳章：" + message, "primary");
     };
-    const logChapterDiagnostics = (root, phase = "") => {
+    const logChapterDiagnostics = (root, phase = "", inspection, collection) => {
       try {
-        const report = inspectChapterCompletion(root);
+        const report = inspection || inspectChapterCompletion(root, collection);
         const autoNext = !!configStore.platformParams.cx.parts[0].params[1].value;
         const onlyAnswers = !!configStore.platformParams.cx.parts[0].params[2]?.value;
         const navigation = cxGetChapterNavigation(root, document);
@@ -8084,15 +8139,17 @@
     };
     const checkChapterCompletion = async (root, context, taskId) => {
       if (!context.isCurrent() || taskId !== currentWatchIframeTaskId || navigationPending) return;
-      const complete = canAdvanceChapter(root);
-      logChapterDiagnostics(root);
+      const collection = collectChapterState(root);
+      const report = inspectChapterCompletion(root, collection);
+      const complete = report.complete;
+      logChapterDiagnostics(root, "", report);
       const message = complete ? "平台已确认本页任务完成" : "本页任务仍在处理中，完成后继续按设置切换。";
       if (message !== lastCompletionMessage) {
         lastCompletionMessage = message;
         logStore.addLog(message, complete ? "success" : "info");
       }
       if (!complete || !configStore.platformParams.cx.parts[0].params[1].value || Date.now() - lastFrameChange < 1500) return;
-      const before = chapterSnapshot(root);
+      const before = chapterSnapshot(root, collection.iframes);
       const navigation = cxGetChapterNavigation(root, document);
       const button = navigation.element;
       if (!button) return;
@@ -8124,10 +8181,13 @@
         logChapterNavigation("已取消：自动跳章开关关闭");
         return;
       }
-      if (!sameFrameSnapshot(before, chapterSnapshot(root)) || !canAdvanceChapter(root)) {
+      const afterCollection = collectChapterState(root);
+      const after = chapterSnapshot(root, afterCollection.iframes);
+      const afterReport = inspectChapterCompletion(root, afterCollection);
+      if (!sameFrameSnapshot(before, after) || !afterReport.complete) {
         navigationPending = false;
         logChapterNavigation("已取消：等待期间页面、任务或完成状态发生变化，将重新检查");
-        logChapterDiagnostics(root);
+        logChapterDiagnostics(root, "", afterReport);
         return;
       }
       const currentNavigation = cxGetChapterNavigation(root, document);
@@ -8152,7 +8212,13 @@
       var _a, _b;
       if (disposed)
         return;
-      const page = getChapterPage();
+      if (mutationScanTimer !== null) {
+        clearTimeout(mutationScanTimer);
+        mutationScanTimer = null;
+      }
+      const root = document.documentElement;
+      const scope = getChapterScope(root);
+      const page = getChapterPage(scope);
       const changed = !currentPage || !isSamePage(currentPage, page);
       if (changed) {
         (_a = currentPage == null ? void 0 : currentPage.iframe) == null ? void 0 : _a.removeEventListener("load", onRootIframeLoad);
@@ -8177,29 +8243,29 @@
         (_b = page.iframe) == null ? void 0 : _b.addEventListener("load", onRootIframeLoad);
       }
       if (!page.iframe || !page.document || page.document.readyState !== "complete" || page.document.URL === "about:blank") {
-        logChapterDiagnostics(document.documentElement, "等待章节主页面加载");
+        logChapterDiagnostics(root, "等待章节主页面加载", null, {scope});
         return;
       }
-      const frames = chapterSnapshot(document.documentElement);
+      const collection = collectChapterState(root, scope);
+      const frames = chapterSnapshot(root, collection.iframes);
       if (!sameFrameSnapshot(lastFrames, frames)) {
         lastFrames = frames;
         lastFrameChange = Date.now();
       }
-      logChapterDiagnostics(document.documentElement);
+      logChapterDiagnostics(root, "", null, collection);
       if (activeScan) return;
       const signal = chapterController.signal;
-      watchIframe(document.documentElement, {
+      watchIframe(root, {
         signal,
         // 直接检查页面，避免在轮询发现切换之前，旧请求已返回。
         isCurrent: () => !signal.aborted && isSamePage(page, getChapterPage())
-      });
+      }, collection.iframes);
     };
-    const watchIframe = (documentElement, context) => {
+    const watchIframe = (documentElement, context, allIframes = collectChapterFrames(documentElement)) => {
       const thisTaskId = currentWatchIframeTaskId;
       const scan = {};
       activeScan = scan;
       const release = () => { if (activeScan === scan) activeScan = null; };
-      const allIframes = collectChapterFrames(documentElement);
         rxjs.from(allIframes).pipe(concatMap((iframe) => {
           if (thisTaskId !== currentWatchIframeTaskId || !context.isCurrent())
             return Promise.resolve();
@@ -8594,11 +8660,21 @@
     init();
     processIframeTask();
     const intervalId = setInterval(processIframeTask, 500);
-    const observer = new MutationObserver(() => processIframeTask());
+    const observer = new MutationObserver(() => {
+      if (disposed || mutationScanTimer !== null) return;
+      // A timeout works in background tabs too; rAF alone could stop scanning.
+      // The 500 ms poll remains a fallback for nested document changes.
+      mutationScanTimer = setTimeout(() => {
+        mutationScanTimer = null;
+        processIframeTask();
+      }, 25);
+    });
     observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["src"] });
     vue.onBeforeUnmount(() => {
       var _a;
       disposed = true;
+      if (mutationScanTimer !== null) clearTimeout(mutationScanTimer);
+      mutationScanTimer = null;
       clearInterval(intervalId);
       observer.disconnect();
       (_a = currentPage == null ? void 0 : currentPage.iframe) == null ? void 0 : _a.removeEventListener("load", onRootIframeLoad);
@@ -9233,13 +9309,15 @@
         left: configStore.position.x,
         top: configStore.position.y
       });
-      const setPanelPosition = (left, top) => {
+      const setPanelPosition = (left, top, persist = true) => {
         const width = Math.min(PANEL_WIDTH, Math.max(0, window.innerWidth - 16));
         const x = Math.min(Math.max(0, window.innerWidth - width - 8), Math.max(0, Number.parseFloat(left) || 0));
         const y = Math.min(Math.max(0, window.innerHeight - MINIMIZED_PANEL_HEIGHT), Math.max(0, Number.parseFloat(top) || 0));
         moveStyle.value = {left: `${x}px`, top: `${y}px`, "--ai-panel-top": `${y}px`};
-        configStore.position.x = moveStyle.value.left;
-        configStore.position.y = moveStyle.value.top;
+        if (persist && !isDragging.value) {
+          configStore.position.x = moveStyle.value.left;
+          configStore.position.y = moveStyle.value.top;
+        }
       };
       const fitPanelToViewport = () => setPanelPosition(moveStyle.value.left, moveStyle.value.top);
       fitPanelToViewport();
@@ -9260,19 +9338,26 @@
           return;
         const x = event.clientX - offsetX.value;
         const y = event.clientY - offsetY.value;
-        setPanelPosition(x - WINDOW_EDGE_OFFSET, y - WINDOW_EDGE_OFFSET);
+        setPanelPosition(x - WINDOW_EDGE_OFFSET, y - WINDOW_EDGE_OFFSET, false);
       };
       const endDrag = () => {
+        const moved = isDragging.value;
         isDragging.value = false;
         document.removeEventListener("mousemove", drag);
         document.removeEventListener("mouseup", endDrag);
+        if (moved) {
+          configStore.position.x = moveStyle.value.left;
+          configStore.position.y = moveStyle.value.top;
+        }
       };
+      window.addEventListener("blur", endDrag);
       vue.onBeforeUnmount(() => {
         uiMounted = false;
         ++motionEpoch;
         panelMotion?.cancel();
         endDrag();
         window.removeEventListener("resize", fitPanelToViewport);
+        window.removeEventListener("blur", endDrag);
       });
       return (_ctx, _cache) => {
         const _component_el_card = vue.resolveComponent("el-card");

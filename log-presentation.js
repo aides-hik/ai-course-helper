@@ -34,18 +34,39 @@
     const match = String(text || "").match(/^(\d{2}):(\d{2}):(\d{2})$/);
     return match ? Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]) : null;
   };
+  // Entries are append-only in the log store. Cache their display projection,
+  // while checking primitives so an explicitly edited entry updates immediately.
+  // Weak keys let evicted history and its presentation data be collected.
+  const logPresentationCache = new WeakMap();
+  let logPresentationSequence = 0;
+  const logPresentation = (entry) => {
+    const message = logMessage(entry), type = entry.type, time = entry.time;
+    const previous = logPresentationCache.get(entry);
+    if (previous && previous.message === message && previous.type === type && previous.time === time) return previous;
+    const detailOnly = logDetailOnly(entry), reminder = !detailOnly && logReminder(entry);
+    const briefType = /^\[章节诊断\] 当前原因：/.test(message) && !reminder ? "info" : type;
+    const common = {key: previous?.brief.key ?? ++logPresentationSequence, message, time, repeat: 1, lastTime: time};
+    const result = {message, type, time, clock: logClock(time), detailOnly, reminder,
+      detail: Object.freeze({...common, type, displayMessage: message}),
+      brief: Object.freeze({...common, type: briefType, displayMessage: logDisplayMessage(entry, "brief")})};
+    logPresentationCache.set(entry, result);
+    return result;
+  };
   const logVisibleRows = (logs, mode = "brief") => {
     const rows = [];
+    let previousClock = null;
     for (const entry of logs || []) {
-      if (mode !== "detail" && (logDetailOnly(entry) || mode === "reminders" && !logReminder(entry))) continue;
-      const displayMessage = logDisplayMessage(entry, mode);
-      const type = mode !== "detail" && /^\[章节诊断\] 当前原因：/.test(logMessage(entry)) && !logReminder(entry) ? "info" : entry.type;
+      const presentation = logPresentation(entry);
+      if (mode !== "detail" && (presentation.detailOnly || mode === "reminders" && !presentation.reminder)) continue;
+      const row = mode === "detail" ? presentation.detail : presentation.brief;
       const previous = rows[rows.length - 1];
-      const before = logClock(previous?.lastTime), now = logClock(entry.time);
+      const before = previousClock, now = presentation.clock;
       const elapsed = before === null || now === null ? Infinity : (now - before + 86400) % 86400;
-      if (mode !== "detail" && previous?.displayMessage === displayMessage && previous.type === type && elapsed <= 60) {
-        previous.repeat += 1; previous.lastTime = entry.time;
-      } else rows.push({...entry, type, displayMessage, repeat: 1, lastTime: entry.time});
+      if (mode !== "detail" && previous?.displayMessage === row.displayMessage && previous.type === row.type && elapsed <= 60) {
+        // Never mutate a shared cached row, including a row from an older view.
+        rows[rows.length - 1] = {...previous, repeat: previous.repeat + 1, lastTime: entry.time};
+      } else rows.push(row);
+      previousClock = now;
     }
     return rows;
   };

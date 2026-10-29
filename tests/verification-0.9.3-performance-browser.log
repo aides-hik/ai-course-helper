@@ -1,0 +1,147 @@
+{
+  "realExtension": true,
+  "noGM": true,
+  "realSyntheticVideo": true,
+  "scenarios": [
+    "without-key-real-video-plays-and-overview-shows-running-without-forced-settings",
+    "missing-key-chapter-work-waits-without-save-or-completion-and-later-video-continues",
+    "without-key-document-scrolls-and-runs-its-reading-wait",
+    "completed-video-without-key-advances-once-when-auto-next-enabled",
+    "native-100-question-batch-fills-only-90-unanswered-items",
+    "dragging-40-separated-movements-writes-position-only-on-release",
+    "500-log-history-skips-hidden-rendering-and-restores-all-rows-and-export",
+    "changing-a-question-aborts-the-pending-batch-and-prevents-late-filling",
+    "real-dom-fixed-v092-versus-optimized-solver-counts-less-work-with-identical-results"
+  ],
+  "screenshots": [
+    "performance-video-desktop.png",
+    "performance-video-320.png"
+  ],
+  "errors": [],
+  "video": {
+    "paused": false,
+    "current": 0.1333,
+    "duration": 90,
+    "ended": false
+  },
+  "narrow": {
+    "viewport": 320,
+    "width": 304,
+    "fits": true
+  },
+  "nativeBatch": {
+    "questions": 100,
+    "existingSkipped": 10,
+    "modelRequests": 90,
+    "existing": true,
+    "filled": true
+  },
+  "drag": {
+    "moves": 40,
+    "writesDuring": 0,
+    "writesAfter": 2,
+    "config": {
+      "x": "134px",
+      "y": "125px"
+    },
+    "panel": {
+      "left": 134,
+      "top": 125
+    }
+  },
+  "logs": {
+    "raw": 500,
+    "visible": 500,
+    "hidden": 0,
+    "collapsed": 0,
+    "restored": 500,
+    "copyFirst": true,
+    "copyLast": true
+  },
+  "solverMeasurements": [
+    {
+      "revision": "baseline",
+      "mode": "answered",
+      "count": 100,
+      "rate": 100,
+      "cancelled": false,
+      "requests": 0,
+      "filled": 100,
+      "measurements": {
+        "querySelector": 21400,
+        "querySelectorAll": 72900,
+        "computedStyle": 34100,
+        "peakIntervals": 1,
+        "activeIntervals": 0
+      },
+      "pendingChecks": null,
+      "elapsedMs": 390.70000000298023
+    },
+    {
+      "revision": "optimized",
+      "mode": "answered",
+      "count": 100,
+      "rate": 100,
+      "cancelled": false,
+      "requests": 0,
+      "filled": 100,
+      "measurements": {
+        "querySelector": 1800,
+        "querySelectorAll": 4300,
+        "computedStyle": 4700,
+        "peakIntervals": 1,
+        "activeIntervals": 0
+      },
+      "pendingChecks": null,
+      "elapsedMs": 28.400000005960464
+    },
+    {
+      "revision": "baseline",
+      "mode": "pending",
+      "count": 30,
+      "rate": 100,
+      "cancelled": false,
+      "requests": 30,
+      "filled": 30,
+      "measurements": {
+        "querySelector": 26550,
+        "querySelectorAll": 91530,
+        "computedStyle": 40410,
+        "peakIntervals": 31,
+        "activeIntervals": 0
+      },
+      "pendingChecks": {
+        "querySelector": 1920,
+        "querySelectorAll": 6720,
+        "computedStyle": 2880
+      },
+      "elapsedMs": 545.0999999940395
+    },
+    {
+      "revision": "optimized",
+      "mode": "pending",
+      "count": 30,
+      "rate": 100,
+      "cancelled": false,
+      "requests": 30,
+      "filled": 30,
+      "measurements": {
+        "querySelector": 10650,
+        "querySelectorAll": 35880,
+        "computedStyle": 16560,
+        "peakIntervals": 1,
+        "activeIntervals": 0
+      },
+      "pendingChecks": {
+        "querySelector": 60,
+        "querySelectorAll": 210,
+        "computedStyle": 90
+      },
+      "elapsedMs": 427.40000000596046
+    }
+  ],
+  "passed": true,
+  "baselineCommit": "e4530aaa5759ffca96cea46c5d597431c96c15ce",
+  "packageSha256": "2D7E6144359587B9BCA273B30BE30BA5618107E660EEA4F333EBBC9B5B38FDD5",
+  "baselineAvailable": true
+}
