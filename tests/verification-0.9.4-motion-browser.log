@@ -1,0 +1,1369 @@
+{
+  "baselineCommit": "3a4b786278440b73b3984768c2aef877e01e3ac9",
+  "measurementNotes": [
+    "Real unpacked MV3 extension with native Chrome storage; no GM layer or real AI requests.",
+    "Both revisions run the same 1280px complex course background, 500 stored logs, 40 simulated question statuses and 25 identical background updates.",
+    "Edge headless with --disable-gpu; software rendering and host load affect frame timing.",
+    "The physical display refresh rate is unavailable in this headless test; rAF cadence is measured, not inferred.",
+    "Timing is observational; deterministic assertions use input semantics and bounded work counts.",
+    "CDP trusted touch emulation does not replace a physical touchscreen/device test."
+  ],
+  "revisions": [
+    {
+      "revision": "baseline",
+      "realExtension": true,
+      "headless": true,
+      "gpuDisabled": true,
+      "timingObservational": true,
+      "checks": [
+        "1200-mouse-inputs-150-frames-500-live-logs-persist-only-on-release",
+        "rapid-toggle-and-tab-interruptions-use-only-transform-opacity-and-settle",
+        "reduced-motion-uses-no-spatial-travel"
+      ],
+      "screenshots": [
+        "motion-baseline-desktop.png"
+      ],
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36 Edg/156.0.0.0",
+        "devicePixelRatio": 1,
+        "viewport": [
+          1280,
+          900
+        ],
+        "screen": [
+          800,
+          600
+        ],
+        "webglRenderer": "ANGLE (Microsoft, Microsoft Basic Render Driver (0x0000008C) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "hardwareConcurrency": 32,
+        "visibility": "visible"
+      },
+      "instrumentation": {
+        "wrappedStyleProperties": [
+          "left",
+          "top",
+          "transform"
+        ],
+        "closedShadow": true
+      },
+      "drag": {
+        "counts": {
+          "transform": 0,
+          "left": 150,
+          "top": 150,
+          "topVariable": 150,
+          "maps": 3,
+          "positionWrites": 2,
+          "animate": 0
+        },
+        "frames": 155,
+        "timing": {
+          "medianMs": 50,
+          "p95Ms": 66.70000000000073,
+          "maxMs": 100,
+          "over33ms": 130,
+          "over33Share": 0.8387096774193549,
+          "observedMeanFps": 21.429558965850966
+        },
+        "longTasks": [],
+        "inputEvents": 1200,
+        "requestedFrames": 150,
+        "backgroundUpdates": 25,
+        "countsDuring": {
+          "transform": 0,
+          "left": 150,
+          "top": 150,
+          "topVariable": 150,
+          "maps": 3,
+          "positionWrites": 0,
+          "animate": 0
+        },
+        "config": {
+          "x": "48px",
+          "y": "85px"
+        },
+        "rect": {
+          "left": 48,
+          "top": 85
+        },
+        "original": {
+          "left": 32,
+          "top": 80
+        },
+        "initial": {
+          "left": 32,
+          "top": 80
+        },
+        "movingRect": {
+          "left": 48,
+          "top": 85
+        },
+        "dragging": null,
+        "transform": "",
+        "willChange": "",
+        "performance": {
+          "LayoutCount": 149,
+          "RecalcStyleCount": 149,
+          "TaskDuration": 1.738924,
+          "ScriptDuration": 0.038441,
+          "LayoutDuration": 0.046307,
+          "RecalcStyleDuration": 0.962801
+        }
+      },
+      "motion": {
+        "counts": {
+          "transform": 0,
+          "left": 0,
+          "top": 0,
+          "topVariable": 0,
+          "maps": 0,
+          "positionWrites": 0,
+          "animate": 28
+        },
+        "frames": 46,
+        "timing": {
+          "medianMs": 33.399999999999636,
+          "p95Ms": 66.60000000000036,
+          "maxMs": 66.70000000000073,
+          "over33ms": 35,
+          "over33Share": 0.7608695652173914,
+          "observedMeanFps": 24.64373727633129
+        },
+        "longTasks": [],
+        "captured": [
+          {
+            "kind": "Animation",
+            "target": "ai-minimized-note",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-panel-content",
+            "transitionProperty": null,
+            "duration": 220,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-minimized-note",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-panel-content",
+            "transitionProperty": null,
+            "duration": 220,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-minimized-note",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-panel-content",
+            "transitionProperty": null,
+            "duration": 220,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-minimized-note",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-panel-content",
+            "transitionProperty": null,
+            "duration": 220,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-minimized-note",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-panel-content",
+            "transitionProperty": null,
+            "duration": 220,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-minimized-note",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-panel-content",
+            "transitionProperty": null,
+            "duration": 220,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-minimized-note",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-panel-content",
+            "transitionProperty": null,
+            "duration": 220,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-minimized-note",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-panel-content",
+            "transitionProperty": null,
+            "duration": 220,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-panel-content",
+            "transitionProperty": null,
+            "duration": 220,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__active-bar is-top",
+            "transitionProperty": "transform",
+            "duration": 220,
+            "properties": [
+              "transform"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__item is-top",
+            "transitionProperty": "color",
+            "duration": 140,
+            "properties": [
+              "color"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__item is-top is-active",
+            "transitionProperty": "color",
+            "duration": 140,
+            "properties": [
+              "color"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "el-tabs__content",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__active-bar is-top",
+            "transitionProperty": "transform",
+            "duration": 220,
+            "properties": [
+              "transform"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__item is-top",
+            "transitionProperty": "color",
+            "duration": 140,
+            "properties": [
+              "color"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__item is-top is-active",
+            "transitionProperty": "color",
+            "duration": 140,
+            "properties": [
+              "color"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "el-tabs__content",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__active-bar is-top",
+            "transitionProperty": "transform",
+            "duration": 122.69600928441074,
+            "properties": [
+              "transform"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "el-tabs__content",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__active-bar is-top",
+            "transitionProperty": "transform",
+            "duration": 220,
+            "properties": [
+              "transform"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__item is-top",
+            "transitionProperty": "color",
+            "duration": 140,
+            "properties": [
+              "color"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__item is-top is-active",
+            "transitionProperty": "color",
+            "duration": 140,
+            "properties": [
+              "color"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "el-tabs__content",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__active-bar is-top",
+            "transitionProperty": "transform",
+            "duration": 220,
+            "properties": [
+              "transform"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__item is-top",
+            "transitionProperty": "color",
+            "duration": 140,
+            "properties": [
+              "color"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__item is-top is-active",
+            "transitionProperty": "color",
+            "duration": 140,
+            "properties": [
+              "color"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "el-tabs__content",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__active-bar is-top",
+            "transitionProperty": "transform",
+            "duration": 220,
+            "properties": [
+              "transform"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "el-tabs__content",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__active-bar is-top",
+            "transitionProperty": "transform",
+            "duration": 220,
+            "properties": [
+              "transform"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__item is-top",
+            "transitionProperty": "color",
+            "duration": 140,
+            "properties": [
+              "color"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__item is-top is-active",
+            "transitionProperty": "color",
+            "duration": 140,
+            "properties": [
+              "color"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "el-tabs__content",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__active-bar is-top",
+            "transitionProperty": "transform",
+            "duration": 220,
+            "properties": [
+              "transform"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__item is-top",
+            "transitionProperty": "color",
+            "duration": 140,
+            "properties": [
+              "color"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__item is-top is-active",
+            "transitionProperty": "color",
+            "duration": 140,
+            "properties": [
+              "color"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "el-tabs__content",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__active-bar is-top",
+            "transitionProperty": "transform",
+            "duration": 220,
+            "properties": [
+              "transform"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "el-tabs__content",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__active-bar is-top",
+            "transitionProperty": "transform",
+            "duration": 220,
+            "properties": [
+              "transform"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__item is-top",
+            "transitionProperty": "color",
+            "duration": 140,
+            "properties": [
+              "color"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__item is-top is-active",
+            "transitionProperty": "color",
+            "duration": 140,
+            "properties": [
+              "color"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "el-tabs__content",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__active-bar is-top",
+            "transitionProperty": "transform",
+            "duration": 220,
+            "properties": [
+              "transform"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__item is-top",
+            "transitionProperty": "color",
+            "duration": 140,
+            "properties": [
+              "color"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__item is-top is-active",
+            "transitionProperty": "color",
+            "duration": 140,
+            "properties": [
+              "color"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "el-tabs__content",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          }
+        ],
+        "peak": 4,
+        "applicationPeak": 1,
+        "remaining": 0,
+        "remainingAnimations": [],
+        "motionAttribute": null,
+        "performance": {
+          "LayoutCount": 63,
+          "RecalcStyleCount": 79,
+          "TaskDuration": 0.794927,
+          "ScriptDuration": 0.007036,
+          "LayoutDuration": 0.127249,
+          "RecalcStyleDuration": 0.066233
+        }
+      },
+      "reducedMotion": {
+        "matches": true,
+        "animations": [],
+        "calls": [
+          {
+            "target": "ai-minimized-note",
+            "frames": [
+              {
+                "opacity": 0.78,
+                "transform": "none"
+              },
+              {
+                "opacity": 1,
+                "transform": "none"
+              }
+            ],
+            "options": {
+              "duration": 100,
+              "easing": "cubic-bezier(0.22, 1, 0.36, 1)"
+            }
+          },
+          {
+            "target": "ai-panel-content",
+            "frames": [
+              {
+                "opacity": 0.78,
+                "transform": "none"
+              },
+              {
+                "opacity": 1,
+                "transform": "none"
+              }
+            ],
+            "options": {
+              "duration": 100,
+              "easing": "cubic-bezier(0.22, 1, 0.36, 1)"
+            }
+          }
+        ]
+      },
+      "errors": [],
+      "passed": true,
+      "version": "0.9.3",
+      "contentSha256": "35D9C300D0B1A236340B90142D3D5219D4CF11F018EB3D25C146CDBF9A0635E6",
+      "packageSha256": "2D7E6144359587B9BCA273B30BE30BA5618107E660EEA4F333EBBC9B5B38FDD5"
+    },
+    {
+      "revision": "current",
+      "realExtension": true,
+      "headless": true,
+      "gpuDisabled": true,
+      "timingObservational": true,
+      "checks": [
+        "1200-mouse-inputs-150-frames-500-live-logs-persist-only-on-release",
+        "rapid-toggle-and-tab-interruptions-use-only-transform-opacity-and-settle",
+        "reduced-motion-uses-no-spatial-travel",
+        "trusted-pointer-capture-release-foreign-pointer-ignored-blur-flush",
+        "trusted-cdp-touch-emulation-drags-and-cleans-up",
+        "toggle-does-not-drag-final-coordinates-survive-real-navigation",
+        "actual-320px-viewport-drag-boundaries"
+      ],
+      "screenshots": [
+        "motion-current-desktop.png",
+        "motion-current-320.png"
+      ],
+      "environment": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36 Edg/156.0.0.0",
+        "devicePixelRatio": 1,
+        "viewport": [
+          1280,
+          900
+        ],
+        "screen": [
+          800,
+          600
+        ],
+        "webglRenderer": "ANGLE (Microsoft, Microsoft Basic Render Driver (0x0000008C) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "hardwareConcurrency": 32,
+        "visibility": "visible"
+      },
+      "instrumentation": {
+        "wrappedStyleProperties": [
+          "left",
+          "top",
+          "transform"
+        ],
+        "closedShadow": true
+      },
+      "drag": {
+        "counts": {
+          "transform": 151,
+          "left": 2,
+          "top": 2,
+          "topVariable": 1,
+          "maps": 0,
+          "positionWrites": 1,
+          "animate": 0
+        },
+        "frames": 155,
+        "timing": {
+          "medianMs": 16.699999999999818,
+          "p95Ms": 16.799999999999272,
+          "maxMs": 33.30000000000018,
+          "over33ms": 1,
+          "over33Share": 0.0064516129032258064,
+          "observedMeanFps": 59.23944200267531
+        },
+        "longTasks": [],
+        "inputEvents": 1200,
+        "requestedFrames": 150,
+        "backgroundUpdates": 25,
+        "countsDuring": {
+          "transform": 150,
+          "left": 0,
+          "top": 0,
+          "topVariable": 0,
+          "maps": 0,
+          "positionWrites": 0,
+          "animate": 0
+        },
+        "config": {
+          "x": "42px",
+          "y": "80px"
+        },
+        "rect": {
+          "left": 42,
+          "top": 80
+        },
+        "original": {
+          "left": 32,
+          "top": 80
+        },
+        "initial": {
+          "left": 32,
+          "top": 80
+        },
+        "movingRect": {
+          "left": 42,
+          "top": 80
+        },
+        "dragging": null,
+        "transform": "",
+        "willChange": "",
+        "performance": {
+          "LayoutCount": 27,
+          "RecalcStyleCount": 150,
+          "TaskDuration": 0.348105,
+          "ScriptDuration": 0.013936,
+          "LayoutDuration": 0.010819,
+          "RecalcStyleDuration": 0.028674
+        }
+      },
+      "motion": {
+        "counts": {
+          "transform": 0,
+          "left": 0,
+          "top": 0,
+          "topVariable": 0,
+          "maps": 0,
+          "positionWrites": 0,
+          "animate": 28
+        },
+        "frames": 95,
+        "timing": {
+          "medianMs": 16.69999999999891,
+          "p95Ms": 16.799999999999272,
+          "maxMs": 49.899999999999636,
+          "over33ms": 2,
+          "over33Share": 0.021052631578947368,
+          "observedMeanFps": 58.16801371540538
+        },
+        "longTasks": [],
+        "captured": [
+          {
+            "kind": "Animation",
+            "target": "ai-minimized-note",
+            "transitionProperty": null,
+            "duration": 100,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-panel-content",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-minimized-note",
+            "transitionProperty": null,
+            "duration": 100,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-panel-content",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-minimized-note",
+            "transitionProperty": null,
+            "duration": 100,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-panel-content",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-minimized-note",
+            "transitionProperty": null,
+            "duration": 100,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-panel-content",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-minimized-note",
+            "transitionProperty": null,
+            "duration": 100,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-panel-content",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-minimized-note",
+            "transitionProperty": null,
+            "duration": 100,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-panel-content",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-minimized-note",
+            "transitionProperty": null,
+            "duration": 100,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-panel-content",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-minimized-note",
+            "transitionProperty": null,
+            "duration": 100,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-panel-content",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "ai-panel-content",
+            "transitionProperty": null,
+            "duration": 160,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__active-bar is-top",
+            "transitionProperty": "transform",
+            "duration": 140,
+            "properties": [
+              "transform"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "el-tabs__content",
+            "transitionProperty": null,
+            "duration": 140,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__active-bar is-top",
+            "transitionProperty": "transform",
+            "duration": 140,
+            "properties": [
+              "transform"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "el-tabs__content",
+            "transitionProperty": null,
+            "duration": 140,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__active-bar is-top",
+            "transitionProperty": "transform",
+            "duration": 140,
+            "properties": [
+              "transform"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "el-tabs__content",
+            "transitionProperty": null,
+            "duration": 140,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__active-bar is-top",
+            "transitionProperty": "transform",
+            "duration": 140,
+            "properties": [
+              "transform"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "el-tabs__content",
+            "transitionProperty": null,
+            "duration": 140,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__active-bar is-top",
+            "transitionProperty": "transform",
+            "duration": 140,
+            "properties": [
+              "transform"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "el-tabs__content",
+            "transitionProperty": null,
+            "duration": 140,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__active-bar is-top",
+            "transitionProperty": "transform",
+            "duration": 140,
+            "properties": [
+              "transform"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "el-tabs__content",
+            "transitionProperty": null,
+            "duration": 140,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__active-bar is-top",
+            "transitionProperty": "transform",
+            "duration": 140,
+            "properties": [
+              "transform"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "el-tabs__content",
+            "transitionProperty": null,
+            "duration": 140,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__active-bar is-top",
+            "transitionProperty": "transform",
+            "duration": 140,
+            "properties": [
+              "transform"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "el-tabs__content",
+            "transitionProperty": null,
+            "duration": 140,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__active-bar is-top",
+            "transitionProperty": "transform",
+            "duration": 140,
+            "properties": [
+              "transform"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "el-tabs__content",
+            "transitionProperty": null,
+            "duration": 140,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__active-bar is-top",
+            "transitionProperty": "transform",
+            "duration": 140,
+            "properties": [
+              "transform"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "el-tabs__content",
+            "transitionProperty": null,
+            "duration": 140,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          },
+          {
+            "kind": "CSSTransition",
+            "target": "el-tabs__active-bar is-top",
+            "transitionProperty": "transform",
+            "duration": 140,
+            "properties": [
+              "transform"
+            ]
+          },
+          {
+            "kind": "Animation",
+            "target": "el-tabs__content",
+            "transitionProperty": null,
+            "duration": 140,
+            "properties": [
+              "transform",
+              "opacity"
+            ]
+          }
+        ],
+        "peak": 2,
+        "applicationPeak": 1,
+        "remaining": 0,
+        "remainingAnimations": [],
+        "motionAttribute": null,
+        "performance": {
+          "LayoutCount": 71,
+          "RecalcStyleCount": 118,
+          "TaskDuration": 0.70544,
+          "ScriptDuration": 0.007122,
+          "LayoutDuration": 0.115013,
+          "RecalcStyleDuration": 0.071375
+        }
+      },
+      "reducedMotion": {
+        "matches": true,
+        "animations": [],
+        "calls": [
+          {
+            "target": "ai-minimized-note",
+            "frames": [
+              {
+                "opacity": 0.8
+              },
+              {
+                "opacity": 1
+              }
+            ],
+            "options": {
+              "duration": 80,
+              "easing": "cubic-bezier(0.22, 1, 0.36, 1)"
+            }
+          },
+          {
+            "target": "ai-panel-content",
+            "frames": [
+              {
+                "opacity": 0.8
+              },
+              {
+                "opacity": 1
+              }
+            ],
+            "options": {
+              "duration": 80,
+              "easing": "cubic-bezier(0.22, 1, 0.36, 1)"
+            }
+          }
+        ]
+      },
+      "nativePointer": {
+        "trace": [
+          {
+            "type": "pointerdown",
+            "pointerType": "mouse",
+            "isTrusted": true
+          }
+        ],
+        "initial": {
+          "x": "42px",
+          "y": "80px"
+        },
+        "position": {
+          "x": "102px",
+          "y": "110px"
+        },
+        "rect": {
+          "left": 102,
+          "top": 110
+        },
+        "dragging": null,
+        "transform": "",
+        "captured": true
+      },
+      "pointerIsolation": {
+        "wrongPointerTransform": "",
+        "kept": true,
+        "afterBlur": null,
+        "transform": ""
+      },
+      "touch": {
+        "initial": {
+          "x": "122px",
+          "y": "120px"
+        },
+        "trace": [
+          {
+            "type": "pointerdown",
+            "pointerType": "mouse",
+            "isTrusted": true
+          },
+          {
+            "type": "pointerdown",
+            "pointerType": "touch",
+            "isTrusted": false
+          },
+          {
+            "type": "pointerdown",
+            "pointerType": "touch",
+            "isTrusted": true
+          }
+        ],
+        "dragging": null,
+        "transform": "",
+        "position": {
+          "x": "170px",
+          "y": "144px"
+        }
+      },
+      "persistence": {
+        "saved": {
+          "x": "170px",
+          "y": "144px"
+        },
+        "restored": {
+          "x": "170px",
+          "y": "144px"
+        }
+      },
+      "narrow": {
+        "viewport": [
+          320,
+          700
+        ],
+        "rect": {
+          "left": 8,
+          "top": 612,
+          "width": 304,
+          "right": 312
+        },
+        "position": {
+          "x": "8px",
+          "y": "612px"
+        }
+      },
+      "errors": [],
+      "passed": true,
+      "version": "0.9.4",
+      "contentSha256": "C942653D812CF4F51BF2E8667B5F6FB59C1C09B02771EE27E0D34B5A33A42F80",
+      "packageSha256": "D775EA3087BC6B44A1BD78E81AF7CCC27BD72560AD9D48247FB867D58BD5927D"
+    }
+  ],
+  "network": [],
+  "passed": true
+}

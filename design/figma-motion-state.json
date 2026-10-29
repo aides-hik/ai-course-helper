@@ -1,0 +1,52 @@
+{
+  "version": "0.9.4",
+  "status": "blocked-by-figma-plan-limit",
+  "fileKey": "tM92ylAZ9DonRMdP1vE2Dq",
+  "sessionId": "93cac15b-bd8c-4325-8374-bc93b768cf49",
+  "existingBoardId": "4:75",
+  "existingBoardUrl": "https://www.figma.com/design/tM92ylAZ9DonRMdP1vE2Dq?node-id=4-75",
+  "createdNodeIds": [],
+  "mutatedNodeIds": [],
+  "nativeMotionAvailability": "not-probed",
+  "screenshotPath": null,
+  "error": "You've reached the Figma MCP tool call limit on the Starter plan.",
+  "writeExecuted": false,
+  "readEvidence": {
+    "pageId": "0:1",
+    "boardSize": [1360, 1128],
+    "boardPosition": [80, 80],
+    "overviewBackgroundId": "4:81",
+    "overviewPanelId": "4:85",
+    "headingId": "4:76",
+    "bodyTextTemplateId": "4:77",
+    "sectionTextTemplateId": "4:259",
+    "footerId": "4:260",
+    "buttonComponentSetId": "4:68",
+    "primaryButtonComponentId": "4:65",
+    "buttonLabelProperty": "Label#4:0",
+    "fontFamily": "Noto Sans SC",
+    "fontStyles": ["Bold", "Medium", "Regular"],
+    "librarySearch": "No browser assistant panel composite found in the file's seven subscribed libraries; existing native overview and Glass action components remain the foundation."
+  },
+  "plannedMotion": {
+    "expandMs": 160,
+    "collapseMs": 100,
+    "tabMs": 140,
+    "maxTranslationPx": 4,
+    "opacity": [0.8, 1],
+    "easing": [0.22, 1, 0.36, 1],
+    "reducedMotion": {"durationMs": 80, "opacityOnly": true},
+    "drag": "requestAnimationFrame-coalesced transform, no easing; persist final position on drop",
+    "glass": "Pause heavy refraction while dragging or animating; restore after settling",
+    "frameBudgetsMs": {"60Hz": 16.7, "120Hz": 8.3},
+    "frameBudgetDisclaimer": "Targets only; no Figma screenshot or static design can establish runtime FPS."
+  },
+  "plannedBoard": {
+    "name": "AI 学习助手 / 轻快动效规范 0.9.4",
+    "position": [1500, 80],
+    "width": 1040,
+    "foundation": "Clone existing editable overview background/panel and reuse existing text styles, color bindings, and button instances.",
+    "scriptPath": "design/figma-motion-build.js",
+    "scriptStatus": "Prepared, not executed. Resume only when Figma MCP quota permits; inspect canvas first."
+  }
+}

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         网课学习助手 · OpenAI / DeepSeek 解题版
 // @namespace    local.openai.course-helper
-// @version      0.9.3
+// @version      0.9.4
 // @description  超星/智慧树学习助手，支持 OpenAI / DeepSeek 文字及图片解题、可配置并发，默认关闭自动提交。
 // @license      MIT
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50' y='54' text-anchor='middle' dominant-baseline='central' font-size='82' font-family='Apple Color Emoji,Segoe UI Emoji,Noto Color Emoji,sans-serif'%3E%F0%9F%92%AF%3C/text%3E%3C/svg%3E
@@ -9248,6 +9248,203 @@
   const _hoisted_1 = { class: "overlay" };
   const _hoisted_2 = { class: "title" };
   const _hoisted_3 = { class: "minus" };
+  // Direct manipulation stays outside the reactive render loop. Position and
+  // viewport-dependent CSS are committed once, after the pointer is released.
+  const createPanelInteractions = ({element, initialPosition, onCommit, onDragState = () => {}}) => {
+    const view = window;
+    const document2 = document;
+    const requestFrame = typeof view.requestAnimationFrame === "function"
+      ? callback => view.requestAnimationFrame(callback) : callback => view.setTimeout(callback, 16);
+    const cancelFrame = typeof view.cancelAnimationFrame === "function"
+      ? id => view.cancelAnimationFrame(id) : id => view.clearTimeout(id);
+    let active = null, frame = null, disposed = false;
+    const number = value => Number.isFinite(Number.parseFloat(value)) ? Number.parseFloat(value) : 0;
+    const bounded = (x, y) => {
+      const width = Math.min(396, Math.max(0, view.innerWidth - 16));
+      return {x: Math.min(Math.max(0, view.innerWidth - width - 8), Math.max(0, number(x))),
+        y: Math.min(Math.max(0, view.innerHeight - 88), Math.max(0, number(y)))};
+    };
+    const removeListeners = () => {
+      document2.removeEventListener("mousemove", moveMouse);
+      document2.removeEventListener("mouseup", endMouse);
+      document2.removeEventListener("pointermove", movePointer);
+      document2.removeEventListener("pointerup", endPointer);
+      document2.removeEventListener("pointercancel", endPointer);
+    };
+    const paint = () => {
+      frame = null;
+      if (!active || disposed) return;
+      const {node, x, y, originX, originY, transform} = active;
+      node.style.transform = `translate3d(${x - originX}px,${y - originY}px,0)` + (transform && transform !== "none" ? " " + transform : "");
+    };
+    const move = event => {
+      if (!active || disposed) return;
+      const next = bounded(active.originX + number(event.clientX) - active.pointerX, active.originY + number(event.clientY) - active.pointerY);
+      active.x = next.x; active.y = next.y;
+      if (frame === null) frame = requestFrame(paint);
+      if (event.cancelable) event.preventDefault();
+    };
+    const moveMouse = event => {if (active?.mode === "mouse") move(event);};
+    const movePointer = event => {if (active?.mode === "pointer" && event.pointerId === active.pointerId) move(event);};
+    const endMouse = () => {if (active?.mode === "mouse") endDrag();};
+    const endPointer = event => {if (active?.mode === "pointer" && event.pointerId === active.pointerId) endDrag();};
+    const lostCapture = event => {if (active?.mode === "pointer" && event.pointerId === active.pointerId) endDrag();};
+    const shieldFor = node => {
+      const tree = node.getRootNode();
+      const root = tree?.nodeType === 9 ? tree.documentElement : tree;
+      if (!root?.appendChild) return null;
+      const shield = document2.createElement("div");
+      shield.className = "ai-drag-shield";
+      shield.setAttribute("aria-hidden", "true");
+      shield.style.cssText = "position:fixed;inset:0;z-index:2147483000;background:transparent;cursor:grabbing;touch-action:none;user-select:none";
+      root.appendChild(shield);
+      return shield;
+    };
+    const endDrag = () => {
+      if (!active) return;
+      const ending = active;
+      active = null;
+      if (frame !== null) cancelFrame(frame);
+      frame = null;
+      removeListeners();
+      ending.capture?.removeEventListener?.("lostpointercapture", lostCapture);
+      const next = bounded(ending.x, ending.y);
+      const left = `${next.x}px`, top = `${next.y}px`;
+      // Commit the final pending point synchronously, before removing the
+      // compositor offset. Waiting for Vue here would paint the old position.
+      ending.node.style.left = left;
+      ending.node.style.top = top;
+      ending.node.style.transform = ending.transform;
+      ending.node.style.willChange = ending.willChange;
+      ending.node.style.userSelect = ending.userSelect;
+      if (ending.card) ending.card.style.height = ending.cardHeight;
+      ending.node.removeAttribute("data-ai-dragging");
+      ending.shield?.remove();
+      try {
+        if (ending.capture?.hasPointerCapture?.(ending.pointerId)) ending.capture.releasePointerCapture(ending.pointerId);
+      } catch { /* A detached pointer target may have released it already. */ }
+      onDragState(false);
+      onCommit(left, top);
+    };
+    const start = (event, mode) => {
+      if (disposed || active || event.button !== undefined && event.button !== 0 || event.isPrimary === false) return false;
+      if (mode === "pointer" && !Number.isFinite(event.pointerId)) return false;
+      if (event.target?.closest?.("button,input,textarea,select,a,[contenteditable=true]")) return false;
+      const node = element();
+      if (!node?.isConnected || !Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return false;
+      const rect = node.getBoundingClientRect();
+      const capture = event.currentTarget;
+      const card = node.querySelector?.(".el-card");
+      const cardHeight = card?.style.height || "";
+      const cardSize = card ? card.getBoundingClientRect().height : 0;
+      active = {node, mode, pointerId: event.pointerId, capture,
+        pointerX: event.clientX, pointerY: event.clientY, originX: rect.left, originY: rect.top,
+        x: rect.left, y: rect.top, transform: node.style.transform || "", willChange: node.style.willChange || "",
+        userSelect: node.style.userSelect || "", card, cardHeight, shield: null};
+      node.style.willChange = "transform";
+      node.style.userSelect = "none";
+      if (cardSize > 0) card.style.height = `${cardSize}px`;
+      node.setAttribute("data-ai-dragging", "true");
+      active.shield = shieldFor(node);
+      if (mode === "pointer") {
+        document2.addEventListener("pointermove", movePointer, {passive: false});
+        document2.addEventListener("pointerup", endPointer);
+        document2.addEventListener("pointercancel", endPointer);
+        capture?.addEventListener?.("lostpointercapture", lostCapture);
+        try {capture?.setPointerCapture?.(event.pointerId);} catch { /* The full-screen shield also covers the mouse fallback. */ }
+      } else {
+        document2.addEventListener("mousemove", moveMouse, {passive: false});
+        document2.addEventListener("mouseup", endMouse);
+      }
+      if (event.cancelable) event.preventDefault();
+      onDragState(true);
+      return true;
+    };
+    const fit = () => {
+      if (disposed) return;
+      if (active) {endDrag(); return;}
+      const position = initialPosition();
+      const next = bounded(position?.x, position?.y);
+      const left = `${next.x}px`, top = `${next.y}px`;
+      const node = element();
+      if (node) {node.style.left = left; node.style.top = top;}
+      onCommit(left, top);
+    };
+    const hide = () => endDrag();
+    view.addEventListener("resize", fit);
+    view.addEventListener("blur", hide);
+    view.addEventListener("pagehide", hide);
+    return {fit,
+      startPointerDrag: event => start(event, "pointer"),
+      startMouseDrag: event => start(event, "mouse"),
+      endDrag,
+      dispose() {
+        if (disposed) return;
+        endDrag();
+        disposed = true;
+        view.removeEventListener("resize", fit);
+        view.removeEventListener("blur", hide);
+        view.removeEventListener("pagehide", hide);
+      }
+    };
+  };
+  // Short, interruptible compositor animations. State/focus never wait for them.
+  const createPanelMotion = ({element, nextTick, isMounted = () => true}) => {
+    let active = null, epoch = 0, disposed = false;
+    const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    const restore = (record) => {
+      record.target.style.willChange = record.willChange;
+      if (record.root.dataset) delete record.root.dataset.aiMotion;
+    };
+    const cancel = () => {
+      ++epoch;
+      const previous = active;
+      active = null;
+      if (previous) {previous.animation.cancel(); restore(previous);}
+    };
+    const reveal = async (selector, {offset = -4, duration = 160, axis = "Y"} = {}) => {
+      const requested = ++epoch;
+      await nextTick();
+      if (disposed || requested !== epoch || !isMounted()) return;
+      const root = element();
+      const target = root?.querySelector(selector);
+      if (!target || typeof target.animate !== "function" || document.visibilityState === "hidden" || root.dataset?.aiDragging === "true") {cancel(); return;}
+      const reduced = !!media?.matches;
+      // Only an interrupted animation on this same target needs a style sample.
+      const current = active?.target === target ? getComputedStyle(target) : null;
+      const initial = current ? {opacity: current.opacity, ...(reduced ? {} : {transform: current.transform})}
+        : {opacity: .8, ...(reduced ? {} : {transform: axis === "X" ? `translate3d(${offset}px,0,0)` : `translate3d(0,${offset}px,0)`})};
+      const final = {opacity: 1, ...(reduced ? {} : {transform: "none"})};
+      const old = active;
+      active = null;
+      if (old) {old.animation.cancel(); restore(old);}
+      const willChange = target.style.willChange;
+      target.style.willChange = reduced ? "opacity" : "transform, opacity";
+      root.dataset.aiMotion = "true";
+      try {
+        const animation = target.animate([initial, final], {
+          duration: reduced ? 80 : Math.min(220, Math.max(80, duration)), easing: "cubic-bezier(0.22, 1, 0.36, 1)"
+        });
+        const record = {root, target, animation, willChange};
+        active = record;
+        const finished = () => {if (active === record) {active = null; restore(record);}};
+        animation.onfinish = finished;
+        animation.oncancel = finished;
+      } catch {
+        target.style.willChange = willChange;
+        delete root.dataset.aiMotion;
+      }
+    };
+    const hidden = () => {if (document.visibilityState === "hidden") cancel();};
+    document.addEventListener("visibilitychange", hidden);
+    media?.addEventListener?.("change", cancel);
+    return {reveal, cancel, dispose() {
+      if (disposed) return;
+      disposed = true; cancel();
+      document.removeEventListener("visibilitychange", hidden);
+      media?.removeEventListener?.("change", cancel);
+    }};
+  };
   const WINDOW_EDGE_OFFSET = 11;
   const PANEL_WIDTH = 396;
   const MINIMIZED_PANEL_HEIGHT = 88;
@@ -9259,43 +9456,18 @@
       const currentPlatformName = vue.computed(() => configStore.platformParams[configStore.platformName].name);
       const panelRoot = vue.ref(null);
       let uiMounted = false;
-      let motionEpoch = 0;
-      let panelMotion = null;
-      let motionTarget = null;
-      const animatePanelContent = async (selector, offset, duration, axis = "Y") => {
-        if (!uiMounted) return;
-        const epoch = ++motionEpoch;
-        await vue.nextTick();
-        if (epoch !== motionEpoch) return;
-        const element = panelRoot.value?.querySelector(selector);
-        if (!element || typeof element.animate !== "function") return;
-        const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-        const current = panelMotion && motionTarget === element ? getComputedStyle(element) : null;
-        const initial = current ? { opacity: current.opacity, transform: reduced ? "none" : current.transform }
-          : { opacity: 0.78, transform: reduced ? "none" : `translate${axis}(${offset}px)` };
-        panelMotion?.cancel();
-        motionTarget = element;
-        // Visibility, focus and vShow update immediately. This short reveal is
-        // decorative feedback on the content that is already available.
-        panelMotion = element.animate([initial, { opacity: 1, transform: "none" }], {
-          duration: reduced ? 100 : duration, easing: "cubic-bezier(0.22, 1, 0.36, 1)"
-        });
-        const animation = panelMotion;
-        animation.onfinish = () => {
-          if (panelMotion === animation) { panelMotion = null; motionTarget = null; }
-        };
-      };
-      vue.onMounted(() => { uiMounted = true; });
+      const panelMotion = createPanelMotion({element: () => panelRoot.value, nextTick: vue.nextTick, isMounted: () => uiMounted});
+      vue.onMounted(() => { uiMounted = true; panelInteractions.fit(); });
       vue.watch(() => configStore.isMinus, (collapsed) => {
         if (collapsed) {
           const content = panelRoot.value?.querySelector(".ai-panel-content");
           const focused = content?.getRootNode()?.activeElement;
           if (focused && content.contains(focused)) panelRoot.value?.querySelector(".ai-panel-toggle")?.focus();
         }
-        void animatePanelContent(collapsed ? ".ai-minimized-note" : ".ai-panel-content", collapsed ? -3 : -5, collapsed ? 160 : 220);
+        void panelMotion.reveal(collapsed ? ".ai-minimized-note" : ".ai-panel-content", {offset: collapsed ? -3 : -4, duration: collapsed ? 100 : 160});
       }, { flush: "post" });
       vue.watch(() => configStore.menuIndex, (next, previous) => {
-        if (!configStore.isMinus) void animatePanelContent(".el-tabs__content", Number(next) > Number(previous) ? 6 : -6, 160, "X");
+        if (!configStore.isMinus) void panelMotion.reveal(".el-tabs__content", {offset: Number(next) > Number(previous) ? 4 : -4, duration: 140, axis: "X"});
       }, { flush: "post" });
       const stopConfigSync = watchConfigStorage(configStore);
       vue.onBeforeUnmount(stopConfigSync);
@@ -9303,62 +9475,20 @@
         persistConfig(newVal);
       }, { deep: true });
       const isDragging = vue.ref(false);
-      const offsetX = vue.ref(0);
-      const offsetY = vue.ref(0);
-      const moveStyle = vue.ref({
-        left: configStore.position.x,
-        top: configStore.position.y
+      const moveStyle = vue.ref({left: configStore.position.x, top: configStore.position.y, "--ai-panel-top": configStore.position.y});
+      const panelInteractions = createPanelInteractions({
+        element: () => panelRoot.value,
+        initialPosition: () => configStore.position,
+        onCommit: (left, top) => {
+          moveStyle.value = {left, top, "--ai-panel-top": top};
+          configStore.position.x = left;
+          configStore.position.y = top;
+        },
+        onDragState: (active) => { isDragging.value = active; if (active) panelMotion.cancel(); }
       });
-      const setPanelPosition = (left, top, persist = true) => {
-        const width = Math.min(PANEL_WIDTH, Math.max(0, window.innerWidth - 16));
-        const x = Math.min(Math.max(0, window.innerWidth - width - 8), Math.max(0, Number.parseFloat(left) || 0));
-        const y = Math.min(Math.max(0, window.innerHeight - MINIMIZED_PANEL_HEIGHT), Math.max(0, Number.parseFloat(top) || 0));
-        moveStyle.value = {left: `${x}px`, top: `${y}px`, "--ai-panel-top": `${y}px`};
-        if (persist && !isDragging.value) {
-          configStore.position.x = moveStyle.value.left;
-          configStore.position.y = moveStyle.value.top;
-        }
-      };
-      const fitPanelToViewport = () => setPanelPosition(moveStyle.value.left, moveStyle.value.top);
-      fitPanelToViewport();
-      window.addEventListener("resize", fitPanelToViewport);
-      const handleVisibleChange = (visible2) => {
-        isShow.value = visible2;
-      };
-      const startDrag = (event) => {
-        isDragging.value = true;
-        const header = event.currentTarget;
-        offsetX.value = event.clientX - header.getBoundingClientRect().left;
-        offsetY.value = event.clientY - header.getBoundingClientRect().top;
-        document.addEventListener("mousemove", drag);
-        document.addEventListener("mouseup", endDrag);
-      };
-      const drag = (event) => {
-        if (!isDragging.value)
-          return;
-        const x = event.clientX - offsetX.value;
-        const y = event.clientY - offsetY.value;
-        setPanelPosition(x - WINDOW_EDGE_OFFSET, y - WINDOW_EDGE_OFFSET, false);
-      };
-      const endDrag = () => {
-        const moved = isDragging.value;
-        isDragging.value = false;
-        document.removeEventListener("mousemove", drag);
-        document.removeEventListener("mouseup", endDrag);
-        if (moved) {
-          configStore.position.x = moveStyle.value.left;
-          configStore.position.y = moveStyle.value.top;
-        }
-      };
-      window.addEventListener("blur", endDrag);
-      vue.onBeforeUnmount(() => {
-        uiMounted = false;
-        ++motionEpoch;
-        panelMotion?.cancel();
-        endDrag();
-        window.removeEventListener("resize", fitPanelToViewport);
-        window.removeEventListener("blur", endDrag);
-      });
+      panelInteractions.fit();
+      const handleVisibleChange = (visible2) => { isShow.value = visible2; };
+      vue.onBeforeUnmount(() => { uiMounted = false; panelMotion.dispose(); panelInteractions.dispose(); });
       return (_ctx, _cache) => {
         const _component_el_card = vue.resolveComponent("el-card");
         return vue.withDirectives(vue.createElementVNode("div", {
@@ -9367,9 +9497,6 @@
           class: "main-page",
           "data-collapsed": configStore.isMinus ? "true" : "false"
         }, [
-          vue.withDirectives(vue.createElementVNode("div", _hoisted_1, null, 512), [
-            [vue.vShow, isDragging.value]
-          ]),
           vue.createVNode(_component_el_card, {
             "close-on-click-modal": false,
             "lock-scroll": false,
@@ -9380,7 +9507,8 @@
             header: vue.withCtx(() => [
               vue.createElementVNode("div", {
                 class: "card-header",
-                onMousedown: startDrag
+                onPointerdown: panelInteractions.startPointerDrag,
+                onMousedown: panelInteractions.startMouseDrag
               }, [
                 vue.createElementVNode("div", { class: "title ai-brand", title: "拖动标题移动面板" }, [
                   vue.createElementVNode("span", { class: "ai-brand-mark", "aria-hidden": "true" }, [
@@ -9462,8 +9590,10 @@
 .main-page *, .main-page *::before, .main-page *::after { box-sizing:border-box; }
 .main-page .el-card {
   border:1px solid rgba(255,255,255,.78); border-radius:26px; color:var(--ink); overflow:hidden;
+  /* Element Plus defaults to transition:all; never tween the glass filter. */
+  transition:none;
   background:linear-gradient(145deg,rgba(250,252,255,.72),rgba(238,244,255,.56) 48%,rgba(246,249,255,.69));
-  -webkit-backdrop-filter:blur(26px) saturate(1.28); backdrop-filter:blur(26px) saturate(1.28);
+  -webkit-backdrop-filter:blur(20px) saturate(1.25); backdrop-filter:blur(20px) saturate(1.25);
   box-shadow:0 22px 70px rgba(29,42,83,.19),0 3px 12px rgba(30,42,75,.07),inset 0 1px 0 rgba(255,255,255,.9);
 }
 .main-page .el-card::before {
@@ -9474,8 +9604,12 @@
   mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0); mask-composite:exclude;
 }
 .main-page .el-card::after { box-shadow:inset 1px 1px 0 rgba(255,255,255,.88),inset -1px -1px 0 rgba(255,255,255,.38); }
+.main-page[data-ai-dragging="true"] .el-card, .main-page[data-ai-motion="true"] .el-card {
+  -webkit-backdrop-filter:blur(12px) saturate(1.18); backdrop-filter:blur(12px) saturate(1.18);
+}
+.main-page[data-ai-dragging="true"] .el-card::before, .main-page[data-ai-motion="true"] .el-card::before { display:none; }
 .main-page .el-card__header { padding:15px 16px 13px; border-bottom:0; background:transparent; color:var(--ink); }
-.main-page .card-header { min-height:36px; gap:12px; }
+.main-page .card-header { min-height:36px; gap:12px; touch-action:none; }
 .main-page .card-header .title { min-width:0; justify-content:flex-start; }
 .main-page .ai-brand { display:flex; align-items:center; gap:10px; min-width:0; }
 .main-page .ai-brand-mark { display:grid; place-items:center; flex:0 0 34px; width:34px; height:34px; border:1px solid rgba(255,255,255,.5); border-radius:11px; background:linear-gradient(150deg,rgba(117,137,255,.96),rgba(67,86,219,.94)); color:#fff; box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 3px 8px rgba(70,91,234,.15); }
@@ -9484,16 +9618,16 @@
 .main-page .ai-brand-name { font-size:15px; line-height:1.35; font-weight:650; letter-spacing:-.3px; }
 .main-page .ai-brand-platform { color:var(--muted); font-size:10.5px; font-weight:400; line-height:1.4; }
 .main-page .warning-icon { margin-left:6px; }
-.main-page .ai-panel-toggle { display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; padding:0; border:1px solid rgba(255,255,255,.66); border-radius:50%; background:rgba(255,255,255,.33); color:#66728b; cursor:pointer; box-shadow:inset 0 1px 0 rgba(255,255,255,.68); transition:background-color 140ms,color 140ms,transform 140ms var(--ai-ease); }
+.main-page .ai-panel-toggle { display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; padding:0; border:1px solid rgba(255,255,255,.66); border-radius:50%; background:rgba(255,255,255,.33); color:#66728b; cursor:pointer; box-shadow:inset 0 1px 0 rgba(255,255,255,.68); transition:transform 140ms var(--ai-ease); }
 .main-page .ai-panel-toggle svg { width:14px; height:14px; pointer-events:none; }
 .main-page .el-card__body { max-height:var(--ai-body-space); padding:0 16px 16px; background:transparent; scroll-padding:12px; }
 .main-page .el-tabs__header { margin:0 0 18px; }
 .main-page .el-tabs__nav-wrap { padding:4px; border:1px solid var(--ai-glass-border); border-radius:14px; background:rgba(226,234,249,.28); }
 .main-page .el-tabs__nav-wrap:after { display:none; }
 .main-page .el-tabs__nav { display:flex; width:100%; }
-.main-page .el-tabs__item, .main-page .el-tabs__item.is-top, .main-page .el-tabs__item.is-active { position:relative; z-index:1; flex:1; height:32px; padding:0 8px; color:#59657e; font-size:12px; font-weight:500; transition:color 140ms; }
+.main-page .el-tabs__item, .main-page .el-tabs__item.is-top, .main-page .el-tabs__item.is-active { position:relative; z-index:1; flex:1; height:32px; padding:0 8px; color:#59657e; font-size:12px; font-weight:500; transition:none; }
 .main-page .el-tabs__item.is-active { color:#364ad5; font-weight:650; }
-.main-page .el-tabs__active-bar { z-index:0; top:0; height:32px; border-radius:10px; background:rgba(255,255,255,.74); box-shadow:0 2px 7px rgba(49,67,112,.09),inset 0 1px 0 rgba(255,255,255,.9); transition:transform 220ms var(--ai-ease); }
+.main-page .el-tabs__active-bar { z-index:0; top:0; height:32px; border-radius:10px; background:rgba(255,255,255,.74); box-shadow:0 2px 7px rgba(49,67,112,.09),inset 0 1px 0 rgba(255,255,255,.9); transition:transform 140ms var(--ai-ease); }
 .main-page .el-tabs__content { overflow:visible; }
 .main-page .script-home { padding:0; }
 .main-page .ai-overview { margin:0 0 20px; padding:18px; border:1px solid var(--ai-glass-border); border-radius:19px; background:linear-gradient(135deg,rgba(255,255,255,.46),rgba(222,232,255,.33)); box-shadow:inset 0 1px 0 rgba(255,255,255,.68),0 3px 12px rgba(48,65,110,.025); }
@@ -9598,7 +9732,7 @@
 .main-page .guide-title { font-size:17px; }
 .main-page .guide-number { color:#465bea; }
 .main-page button { touch-action:manipulation; }
-.main-page .ai-copy-logs, .main-page .ai-log-mode, .main-page .ai-fetch-models, .main-page .ai-reset-urls, .main-page .ai-save { transition:transform 150ms var(--ai-ease),background-color 150ms,color 150ms,opacity 150ms; }
+.main-page .ai-copy-logs, .main-page .ai-log-mode, .main-page .ai-fetch-models, .main-page .ai-reset-urls, .main-page .ai-save { transition:transform 150ms var(--ai-ease),opacity 150ms; }
 .main-page .ai-copy-logs:active, .main-page .ai-log-mode:active, .main-page .ai-panel-toggle:active, .main-page .ai-fetch-models:active, .main-page .ai-reset-urls:active, .main-page .ai-save:active { transform:scale(.975); transition-duration:0ms; }
 .main-page .ai-minimized-note { margin:0; padding:0 2px 2px; color:var(--muted); font-size:11px; }
 .main-page .ai-copy-logs:disabled { cursor:wait; opacity:.65; }
@@ -9624,7 +9758,7 @@
   .main-page .el-card::before { display:none; }
 }
 @media (prefers-reduced-transparency:reduce) {
-  .main-page .el-card { background:#edf2fc; -webkit-backdrop-filter:none; backdrop-filter:none; }
+  .main-page .el-card, .main-page[data-ai-dragging="true"] .el-card, .main-page[data-ai-motion="true"] .el-card { background:#edf2fc; -webkit-backdrop-filter:none; backdrop-filter:none; }
   .main-page .el-card::before { display:none; }
 }
 @media (prefers-reduced-motion:reduce) {
@@ -9648,135 +9782,144 @@
     ];
     return mountNode;
   };
+  // The shell keeps CSS glass continuously. This optional, single-pass rim is
+  // prepared only while idle, and never follows pointer or animation frames.
+  let liquidGlassSequence = 0;
   const attachLiquidGlass = (mountNode) => {
-    const root = mountNode.getRootNode();
+    const noop = () => {};
+    const root = mountNode?.getRootNode?.();
     const safariOnly = /Safari/.test(navigator.userAgent) && !/Chrome|Chromium|Edg/.test(navigator.userAgent);
-    if (safariOnly || !CSS.supports("backdrop-filter", "url(#lg)") || !root || typeof root.appendChild !== "function") return;
-    if (window.matchMedia?.("(prefers-reduced-transparency: reduce)").matches) return;
-    const svgNS = "http://www.w3.org/2000/svg";
-    const svg = document.createElementNS(svgNS, "svg");
-    svg.setAttribute("width", "0");
-    svg.setAttribute("height", "0");
-    svg.setAttribute("aria-hidden", "true");
-    svg.style.cssText = "position:absolute;width:0;height:0";
-    const filter = document.createElementNS(svgNS, "filter");
-    filter.id = "course-helper-glass";
-    filter.setAttribute("color-interpolation-filters", "sRGB");
-    filter.setAttribute("x", "0");
-    filter.setAttribute("y", "0");
-    filter.setAttribute("width", "100%");
-    filter.setAttribute("height", "100%");
-    const feImage = document.createElementNS(svgNS, "feImage");
-    feImage.setAttribute("result", "map");
-    feImage.setAttribute("preserveAspectRatio", "none");
-    filter.appendChild(feImage);
-    const channelMatrix = [
-      "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0",
-      "0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 1 0",
-      "0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0"
-    ];
-    [-118, -112, -106].forEach((scale, index) => {
-      const displaced = document.createElementNS(svgNS, "feDisplacementMap");
-      displaced.setAttribute("in", "SourceGraphic");
-      displaced.setAttribute("in2", "map");
-      displaced.setAttribute("scale", String(scale));
-      displaced.setAttribute("xChannelSelector", "R");
-      displaced.setAttribute("yChannelSelector", "B");
-      displaced.setAttribute("result", "d" + index);
-      const matrix = document.createElementNS(svgNS, "feColorMatrix");
-      matrix.setAttribute("in", "d" + index);
-      matrix.setAttribute("type", "matrix");
-      matrix.setAttribute("values", channelMatrix[index]);
-      matrix.setAttribute("result", "c" + index);
-      filter.append(displaced, matrix);
-    });
-    const firstBlend = document.createElementNS(svgNS, "feBlend");
-    firstBlend.setAttribute("in", "c0");
-    firstBlend.setAttribute("in2", "c1");
-    firstBlend.setAttribute("mode", "screen");
-    firstBlend.setAttribute("result", "c01");
-    const secondBlend = document.createElementNS(svgNS, "feBlend");
-    secondBlend.setAttribute("in", "c01");
-    secondBlend.setAttribute("in2", "c2");
-    secondBlend.setAttribute("mode", "screen");
-    filter.append(firstBlend, secondBlend);
-    const defs = document.createElementNS(svgNS, "defs");
-    defs.appendChild(filter);
-    svg.appendChild(defs);
-    root.appendChild(svg);
-    const makeMap = (width, height, radius) => {
+    if (safariOnly || !CSS.supports("backdrop-filter", "url(#lg)") || !root?.appendChild) return noop;
+    const preference = window.matchMedia?.("(prefers-reduced-transparency: reduce)");
+    const filterId = "course-helper-glass-" + ++liquidGlassSequence;
+    const maps = new Map();
+    let card = null, panel = null, svg = null, feImage = null;
+    let resize = null, presence = null, state = null;
+    let timer = null, idle = null, lastSize = "";
+    let disposed = false, suspended = false;
+    const blocked = () => disposed || suspended || document.hidden || preference?.matches ||
+      panel?.getAttribute("data-ai-dragging") === "true" || panel?.getAttribute("data-ai-motion") === "true";
+    const cancel = () => {
+      if (timer !== null) clearTimeout(timer);
+      if (idle !== null) window.cancelIdleCallback?.(idle);
+      timer = idle = null;
+    };
+    const removeFilter = () => {
+      card?.style.removeProperty("--ai-glass-edge-filter");
+      svg?.remove(); svg = feImage = null; lastSize = "";
+    };
+    const filter = () => {
+      if (svg) return;
+      const create = name => document.createElementNS("http://www.w3.org/2000/svg", name);
+      svg = create("svg"); svg.setAttribute("width", "0"); svg.setAttribute("height", "0");
+      svg.setAttribute("aria-hidden", "true"); svg.style.cssText = "position:absolute;width:0;height:0;pointer-events:none";
+      const defs = create("defs"), effect = create("filter"), displaced = create("feDisplacementMap");
+      effect.id = filterId; effect.setAttribute("color-interpolation-filters", "sRGB");
+      effect.setAttribute("x", "0"); effect.setAttribute("y", "0");
+      effect.setAttribute("width", "100%"); effect.setAttribute("height", "100%");
+      feImage = create("feImage"); feImage.setAttribute("result", "map"); feImage.setAttribute("preserveAspectRatio", "none");
+      displaced.setAttribute("in", "SourceGraphic"); displaced.setAttribute("in2", "map");
+      displaced.setAttribute("scale", "-34"); displaced.setAttribute("xChannelSelector", "R"); displaced.setAttribute("yChannelSelector", "B");
+      effect.append(feImage, displaced); defs.appendChild(effect); svg.appendChild(defs); root.appendChild(svg);
+    };
+    const mapFor = (width, height, radius, key) => {
+      if (maps.has(key)) {const value = maps.get(key); maps.delete(key); maps.set(key, value); return value;}
+      const scale = Math.min(1, 384 / Math.max(width, height));
       const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
+      canvas.width = Math.max(1, Math.round(width * scale)); canvas.height = Math.max(1, Math.round(height * scale));
       const context = canvas.getContext("2d");
       if (!context) throw new Error("Glass canvas unavailable");
-      const horizontal = context.createLinearGradient(0, 0, width, 0);
-      horizontal.addColorStop(0, "rgb(0,0,0)");
-      horizontal.addColorStop(1, "rgb(255,0,0)");
-      context.fillStyle = horizontal;
-      context.fillRect(0, 0, width, height);
-      const vertical = context.createLinearGradient(0, 0, 0, height);
-      vertical.addColorStop(0, "rgb(0,0,0)");
-      vertical.addColorStop(1, "rgb(0,0,255)");
-      context.globalCompositeOperation = "difference";
-      context.fillStyle = vertical;
-      context.fillRect(0, 0, width, height);
+      const horizontal = context.createLinearGradient(0, 0, canvas.width, 0);
+      horizontal.addColorStop(0, "rgb(0,0,0)"); horizontal.addColorStop(1, "rgb(255,0,0)");
+      context.fillStyle = horizontal; context.fillRect(0, 0, canvas.width, canvas.height);
+      const vertical = context.createLinearGradient(0, 0, 0, canvas.height);
+      vertical.addColorStop(0, "rgb(0,0,0)"); vertical.addColorStop(1, "rgb(0,0,255)");
+      context.globalCompositeOperation = "difference"; context.fillStyle = vertical; context.fillRect(0, 0, canvas.width, canvas.height);
       context.globalCompositeOperation = "source-over";
-      const inset = Math.max(10, Math.round(Math.min(width, height) * 0.08));
-      context.filter = "blur(14px)";
-      context.fillStyle = "rgba(128,128,128,0.94)";
-      context.beginPath();
-      const corner = Math.max(radius - inset, 2);
-      if (typeof context.roundRect === "function") context.roundRect(inset, inset, width - inset * 2, height - inset * 2, corner);
-      else context.rect(inset, inset, width - inset * 2, height - inset * 2);
+      const inset = Math.max(2, Math.round(Math.min(canvas.width, canvas.height) * 0.08));
+      context.filter = "blur(7px)"; context.fillStyle = "rgba(128,128,128,0.94)"; context.beginPath();
+      const corner = Math.max(radius * scale - inset, 2);
+      if (typeof context.roundRect === "function") context.roundRect(inset, inset, canvas.width - inset * 2, canvas.height - inset * 2, corner);
+      else context.rect(inset, inset, canvas.width - inset * 2, canvas.height - inset * 2);
       context.fill();
-      return canvas.toDataURL();
+      const value = canvas.toDataURL(); maps.set(key, value);
+      if (maps.size > 4) maps.delete(maps.keys().next().value);
+      return value;
     };
-    let watched = null;
-    let timer = 0;
-    let observer = null;
-    let lastSize = "";
-    const apply = (card) => {
-      if (!card.isConnected) return;
-      const width = Math.round(card.offsetWidth);
-      const height = Math.round(card.offsetHeight);
+    const apply = () => {
+      if (blocked() || !card?.isConnected) return;
+      const width = Math.round(card.offsetWidth), height = Math.round(card.offsetHeight);
       if (width < 40 || height < 40) return;
-      const radius = parseFloat(getComputedStyle(card).borderTopLeftRadius) || 22;
-      const size = width + ":" + height + ":" + radius;
-      if (size === lastSize) return;
+      const radius = parseFloat(getComputedStyle(card).borderTopLeftRadius) || 26;
+      const key = width + ":" + height + ":" + radius;
+      if (key === lastSize) return;
       try {
-        feImage.setAttribute("href", makeMap(width, height, radius));
-        feImage.setAttribute("width", String(width));
-        feImage.setAttribute("height", String(height));
-        // Only the decorative rim refracts. The shell keeps its standard blur
-        // even when a browser accepts SVG filter syntax but cannot render it.
-        card.style.setProperty("--ai-glass-edge-filter", "url(#course-helper-glass) blur(2px) saturate(1.25)");
-        lastSize = size;
-      } catch (_) {
-        card.style.removeProperty("--ai-glass-edge-filter");
-      }
+        const map = mapFor(width, height, radius, key);
+        filter(); feImage.setAttribute("href", map); feImage.setAttribute("width", String(width)); feImage.setAttribute("height", String(height));
+        card.style.setProperty("--ai-glass-edge-filter", "url(#" + filterId + ") blur(1px) saturate(1.1)");
+        lastSize = key;
+      } catch {removeFilter();}
     };
-    const watch = (card) => {
-      if (watched === card) return;
-      observer?.disconnect();
-      clearTimeout(timer);
-      lastSize = "";
-      watched = card;
-      apply(card);
-      if (typeof ResizeObserver !== "function") return;
-      observer = new ResizeObserver(() => {
-        clearTimeout(timer);
-        timer = setTimeout(() => apply(card), 80);
-      });
-      observer.observe(card);
+    const schedule = () => {
+      cancel();
+      if (blocked()) return;
+      timer = setTimeout(() => {
+        timer = null;
+        if (blocked()) return;
+        if (typeof window.requestIdleCallback === "function") idle = window.requestIdleCallback(() => {idle = null; apply();}, {timeout: 500});
+        else apply();
+      }, 120);
+    };
+    const syncState = () => {
+      if (blocked()) cancel(); else schedule();
     };
     const find = () => {
-      if (watched?.isConnected) return;
-      const card = root.querySelector(".el-card");
-      if (card) watch(card);
+      if (disposed || suspended) return;
+      const found = mountNode.querySelector(".el-card");
+      if (found === card && card?.isConnected) return;
+      card?.style.removeProperty("--ai-glass-edge-filter");
+      card = found; panel = card?.closest?.(".main-page") || null; lastSize = "";
+      resize?.disconnect(); state?.disconnect(); presence?.disconnect();
+      if (!presence && typeof MutationObserver === "function") presence = new MutationObserver(find);
+      if (presence) {
+        const parents = new Set([mountNode, panel?.parentElement, card?.parentElement].filter(Boolean));
+        for (const parent of parents) presence.observe(parent, {childList: true, subtree: !card});
+      }
+      if (card && typeof ResizeObserver === "function") {
+        if (!resize) resize = new ResizeObserver(schedule);
+        resize.observe(card);
+      }
+      if (panel && typeof MutationObserver === "function") {
+        if (!state) state = new MutationObserver(syncState);
+        // Do not observe style: dragging updates transform on this element.
+        state.observe(panel, {attributes: true, attributeFilter: ["data-ai-dragging", "data-ai-motion", "hidden"]});
+      }
+      schedule();
     };
+    const pause = () => {suspended = true; cancel(); resize?.disconnect(); state?.disconnect(); presence?.disconnect();};
+    const resume = () => {
+      if (disposed) return;
+      suspended = false;
+      // Force a fresh binding; an element may have been replaced while hidden.
+      card?.style.removeProperty("--ai-glass-edge-filter"); card = panel = null; lastSize = ""; find();
+    };
+    const visibility = () => {if (document.hidden) pause(); else resume();};
+    const preferenceChanged = () => {if (preference?.matches) {cancel(); removeFilter();} else schedule();};
+    const hide = event => {if (event.persisted) pause(); else dispose();};
+    const show = event => {if (event.persisted) resume();};
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true; pause(); removeFilter(); maps.clear(); card = panel = null;
+      document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("pagehide", hide); window.removeEventListener("pageshow", show);
+      preference?.removeEventListener?.("change", preferenceChanged);
+    };
+    document.addEventListener("visibilitychange", visibility);
+    window.addEventListener("pagehide", hide); window.addEventListener("pageshow", show);
+    preference?.addEventListener?.("change", preferenceChanged);
     find();
-    new MutationObserver(find).observe(mountNode, { childList: true, subtree: true });
+    if (document.hidden) pause();
+    return dispose;
   };
   const mountApp = () => {
     const app = vue.createApp(_sfc_main);

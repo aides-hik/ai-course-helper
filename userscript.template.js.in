@@ -6238,6 +6238,8 @@
   const _hoisted_1 = { class: "overlay" };
   const _hoisted_2 = { class: "title" };
   const _hoisted_3 = { class: "minus" };
+/* @ai-helper:PANEL_INTERACTIONS@ */
+/* @ai-helper:PANEL_MOTION@ */
   const WINDOW_EDGE_OFFSET = 11;
   const PANEL_WIDTH = 396;
   const MINIMIZED_PANEL_HEIGHT = 88;
@@ -6249,43 +6251,18 @@
       const currentPlatformName = vue.computed(() => configStore.platformParams[configStore.platformName].name);
       const panelRoot = vue.ref(null);
       let uiMounted = false;
-      let motionEpoch = 0;
-      let panelMotion = null;
-      let motionTarget = null;
-      const animatePanelContent = async (selector, offset, duration, axis = "Y") => {
-        if (!uiMounted) return;
-        const epoch = ++motionEpoch;
-        await vue.nextTick();
-        if (epoch !== motionEpoch) return;
-        const element = panelRoot.value?.querySelector(selector);
-        if (!element || typeof element.animate !== "function") return;
-        const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-        const current = panelMotion && motionTarget === element ? getComputedStyle(element) : null;
-        const initial = current ? { opacity: current.opacity, transform: reduced ? "none" : current.transform }
-          : { opacity: 0.78, transform: reduced ? "none" : `translate${axis}(${offset}px)` };
-        panelMotion?.cancel();
-        motionTarget = element;
-        // Visibility, focus and vShow update immediately. This short reveal is
-        // decorative feedback on the content that is already available.
-        panelMotion = element.animate([initial, { opacity: 1, transform: "none" }], {
-          duration: reduced ? 100 : duration, easing: "cubic-bezier(0.22, 1, 0.36, 1)"
-        });
-        const animation = panelMotion;
-        animation.onfinish = () => {
-          if (panelMotion === animation) { panelMotion = null; motionTarget = null; }
-        };
-      };
-      vue.onMounted(() => { uiMounted = true; });
+      const panelMotion = createPanelMotion({element: () => panelRoot.value, nextTick: vue.nextTick, isMounted: () => uiMounted});
+      vue.onMounted(() => { uiMounted = true; panelInteractions.fit(); });
       vue.watch(() => configStore.isMinus, (collapsed) => {
         if (collapsed) {
           const content = panelRoot.value?.querySelector(".ai-panel-content");
           const focused = content?.getRootNode()?.activeElement;
           if (focused && content.contains(focused)) panelRoot.value?.querySelector(".ai-panel-toggle")?.focus();
         }
-        void animatePanelContent(collapsed ? ".ai-minimized-note" : ".ai-panel-content", collapsed ? -3 : -5, collapsed ? 160 : 220);
+        void panelMotion.reveal(collapsed ? ".ai-minimized-note" : ".ai-panel-content", {offset: collapsed ? -3 : -4, duration: collapsed ? 100 : 160});
       }, { flush: "post" });
       vue.watch(() => configStore.menuIndex, (next, previous) => {
-        if (!configStore.isMinus) void animatePanelContent(".el-tabs__content", Number(next) > Number(previous) ? 6 : -6, 160, "X");
+        if (!configStore.isMinus) void panelMotion.reveal(".el-tabs__content", {offset: Number(next) > Number(previous) ? 4 : -4, duration: 140, axis: "X"});
       }, { flush: "post" });
       const stopConfigSync = watchConfigStorage(configStore);
       vue.onBeforeUnmount(stopConfigSync);
@@ -6293,62 +6270,20 @@
         persistConfig(newVal);
       }, { deep: true });
       const isDragging = vue.ref(false);
-      const offsetX = vue.ref(0);
-      const offsetY = vue.ref(0);
-      const moveStyle = vue.ref({
-        left: configStore.position.x,
-        top: configStore.position.y
+      const moveStyle = vue.ref({left: configStore.position.x, top: configStore.position.y, "--ai-panel-top": configStore.position.y});
+      const panelInteractions = createPanelInteractions({
+        element: () => panelRoot.value,
+        initialPosition: () => configStore.position,
+        onCommit: (left, top) => {
+          moveStyle.value = {left, top, "--ai-panel-top": top};
+          configStore.position.x = left;
+          configStore.position.y = top;
+        },
+        onDragState: (active) => { isDragging.value = active; if (active) panelMotion.cancel(); }
       });
-      const setPanelPosition = (left, top, persist = true) => {
-        const width = Math.min(PANEL_WIDTH, Math.max(0, window.innerWidth - 16));
-        const x = Math.min(Math.max(0, window.innerWidth - width - 8), Math.max(0, Number.parseFloat(left) || 0));
-        const y = Math.min(Math.max(0, window.innerHeight - MINIMIZED_PANEL_HEIGHT), Math.max(0, Number.parseFloat(top) || 0));
-        moveStyle.value = {left: `${x}px`, top: `${y}px`, "--ai-panel-top": `${y}px`};
-        if (persist && !isDragging.value) {
-          configStore.position.x = moveStyle.value.left;
-          configStore.position.y = moveStyle.value.top;
-        }
-      };
-      const fitPanelToViewport = () => setPanelPosition(moveStyle.value.left, moveStyle.value.top);
-      fitPanelToViewport();
-      window.addEventListener("resize", fitPanelToViewport);
-      const handleVisibleChange = (visible2) => {
-        isShow.value = visible2;
-      };
-      const startDrag = (event) => {
-        isDragging.value = true;
-        const header = event.currentTarget;
-        offsetX.value = event.clientX - header.getBoundingClientRect().left;
-        offsetY.value = event.clientY - header.getBoundingClientRect().top;
-        document.addEventListener("mousemove", drag);
-        document.addEventListener("mouseup", endDrag);
-      };
-      const drag = (event) => {
-        if (!isDragging.value)
-          return;
-        const x = event.clientX - offsetX.value;
-        const y = event.clientY - offsetY.value;
-        setPanelPosition(x - WINDOW_EDGE_OFFSET, y - WINDOW_EDGE_OFFSET, false);
-      };
-      const endDrag = () => {
-        const moved = isDragging.value;
-        isDragging.value = false;
-        document.removeEventListener("mousemove", drag);
-        document.removeEventListener("mouseup", endDrag);
-        if (moved) {
-          configStore.position.x = moveStyle.value.left;
-          configStore.position.y = moveStyle.value.top;
-        }
-      };
-      window.addEventListener("blur", endDrag);
-      vue.onBeforeUnmount(() => {
-        uiMounted = false;
-        ++motionEpoch;
-        panelMotion?.cancel();
-        endDrag();
-        window.removeEventListener("resize", fitPanelToViewport);
-        window.removeEventListener("blur", endDrag);
-      });
+      panelInteractions.fit();
+      const handleVisibleChange = (visible2) => { isShow.value = visible2; };
+      vue.onBeforeUnmount(() => { uiMounted = false; panelMotion.dispose(); panelInteractions.dispose(); });
       return (_ctx, _cache) => {
         const _component_el_card = vue.resolveComponent("el-card");
         return vue.withDirectives(vue.createElementVNode("div", {
@@ -6357,9 +6292,6 @@
           class: "main-page",
           "data-collapsed": configStore.isMinus ? "true" : "false"
         }, [
-          vue.withDirectives(vue.createElementVNode("div", _hoisted_1, null, 512), [
-            [vue.vShow, isDragging.value]
-          ]),
           vue.createVNode(_component_el_card, {
             "close-on-click-modal": false,
             "lock-scroll": false,
@@ -6370,7 +6302,8 @@
             header: vue.withCtx(() => [
               vue.createElementVNode("div", {
                 class: "card-header",
-                onMousedown: startDrag
+                onPointerdown: panelInteractions.startPointerDrag,
+                onMousedown: panelInteractions.startMouseDrag
               }, [
                 vue.createElementVNode("div", { class: "title ai-brand", title: "拖动标题移动面板" }, [
                   vue.createElementVNode("span", { class: "ai-brand-mark", "aria-hidden": "true" }, [
@@ -6453,136 +6386,7 @@
     ];
     return mountNode;
   };
-  const attachLiquidGlass = (mountNode) => {
-    const root = mountNode.getRootNode();
-    const safariOnly = /Safari/.test(navigator.userAgent) && !/Chrome|Chromium|Edg/.test(navigator.userAgent);
-    if (safariOnly || !CSS.supports("backdrop-filter", "url(#lg)") || !root || typeof root.appendChild !== "function") return;
-    if (window.matchMedia?.("(prefers-reduced-transparency: reduce)").matches) return;
-    const svgNS = "http://www.w3.org/2000/svg";
-    const svg = document.createElementNS(svgNS, "svg");
-    svg.setAttribute("width", "0");
-    svg.setAttribute("height", "0");
-    svg.setAttribute("aria-hidden", "true");
-    svg.style.cssText = "position:absolute;width:0;height:0";
-    const filter = document.createElementNS(svgNS, "filter");
-    filter.id = "course-helper-glass";
-    filter.setAttribute("color-interpolation-filters", "sRGB");
-    filter.setAttribute("x", "0");
-    filter.setAttribute("y", "0");
-    filter.setAttribute("width", "100%");
-    filter.setAttribute("height", "100%");
-    const feImage = document.createElementNS(svgNS, "feImage");
-    feImage.setAttribute("result", "map");
-    feImage.setAttribute("preserveAspectRatio", "none");
-    filter.appendChild(feImage);
-    const channelMatrix = [
-      "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0",
-      "0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 1 0",
-      "0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0"
-    ];
-    [-118, -112, -106].forEach((scale, index) => {
-      const displaced = document.createElementNS(svgNS, "feDisplacementMap");
-      displaced.setAttribute("in", "SourceGraphic");
-      displaced.setAttribute("in2", "map");
-      displaced.setAttribute("scale", String(scale));
-      displaced.setAttribute("xChannelSelector", "R");
-      displaced.setAttribute("yChannelSelector", "B");
-      displaced.setAttribute("result", "d" + index);
-      const matrix = document.createElementNS(svgNS, "feColorMatrix");
-      matrix.setAttribute("in", "d" + index);
-      matrix.setAttribute("type", "matrix");
-      matrix.setAttribute("values", channelMatrix[index]);
-      matrix.setAttribute("result", "c" + index);
-      filter.append(displaced, matrix);
-    });
-    const firstBlend = document.createElementNS(svgNS, "feBlend");
-    firstBlend.setAttribute("in", "c0");
-    firstBlend.setAttribute("in2", "c1");
-    firstBlend.setAttribute("mode", "screen");
-    firstBlend.setAttribute("result", "c01");
-    const secondBlend = document.createElementNS(svgNS, "feBlend");
-    secondBlend.setAttribute("in", "c01");
-    secondBlend.setAttribute("in2", "c2");
-    secondBlend.setAttribute("mode", "screen");
-    filter.append(firstBlend, secondBlend);
-    const defs = document.createElementNS(svgNS, "defs");
-    defs.appendChild(filter);
-    svg.appendChild(defs);
-    root.appendChild(svg);
-    const makeMap = (width, height, radius) => {
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const context = canvas.getContext("2d");
-      if (!context) throw new Error("Glass canvas unavailable");
-      const horizontal = context.createLinearGradient(0, 0, width, 0);
-      horizontal.addColorStop(0, "rgb(0,0,0)");
-      horizontal.addColorStop(1, "rgb(255,0,0)");
-      context.fillStyle = horizontal;
-      context.fillRect(0, 0, width, height);
-      const vertical = context.createLinearGradient(0, 0, 0, height);
-      vertical.addColorStop(0, "rgb(0,0,0)");
-      vertical.addColorStop(1, "rgb(0,0,255)");
-      context.globalCompositeOperation = "difference";
-      context.fillStyle = vertical;
-      context.fillRect(0, 0, width, height);
-      context.globalCompositeOperation = "source-over";
-      const inset = Math.max(10, Math.round(Math.min(width, height) * 0.08));
-      context.filter = "blur(14px)";
-      context.fillStyle = "rgba(128,128,128,0.94)";
-      context.beginPath();
-      const corner = Math.max(radius - inset, 2);
-      if (typeof context.roundRect === "function") context.roundRect(inset, inset, width - inset * 2, height - inset * 2, corner);
-      else context.rect(inset, inset, width - inset * 2, height - inset * 2);
-      context.fill();
-      return canvas.toDataURL();
-    };
-    let watched = null;
-    let timer = 0;
-    let observer = null;
-    let lastSize = "";
-    const apply = (card) => {
-      if (!card.isConnected) return;
-      const width = Math.round(card.offsetWidth);
-      const height = Math.round(card.offsetHeight);
-      if (width < 40 || height < 40) return;
-      const radius = parseFloat(getComputedStyle(card).borderTopLeftRadius) || 22;
-      const size = width + ":" + height + ":" + radius;
-      if (size === lastSize) return;
-      try {
-        feImage.setAttribute("href", makeMap(width, height, radius));
-        feImage.setAttribute("width", String(width));
-        feImage.setAttribute("height", String(height));
-        // Only the decorative rim refracts. The shell keeps its standard blur
-        // even when a browser accepts SVG filter syntax but cannot render it.
-        card.style.setProperty("--ai-glass-edge-filter", "url(#course-helper-glass) blur(2px) saturate(1.25)");
-        lastSize = size;
-      } catch (_) {
-        card.style.removeProperty("--ai-glass-edge-filter");
-      }
-    };
-    const watch = (card) => {
-      if (watched === card) return;
-      observer?.disconnect();
-      clearTimeout(timer);
-      lastSize = "";
-      watched = card;
-      apply(card);
-      if (typeof ResizeObserver !== "function") return;
-      observer = new ResizeObserver(() => {
-        clearTimeout(timer);
-        timer = setTimeout(() => apply(card), 80);
-      });
-      observer.observe(card);
-    };
-    const find = () => {
-      if (watched?.isConnected) return;
-      const card = root.querySelector(".el-card");
-      if (card) watch(card);
-    };
-    find();
-    new MutationObserver(find).observe(mountNode, { childList: true, subtree: true });
-  };
+/* @ai-helper:LIQUID_GLASS@ */
   const mountApp = () => {
     const app = vue.createApp(_sfc_main);
     app.use(pinia.createPinia());

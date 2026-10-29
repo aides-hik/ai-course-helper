@@ -15,8 +15,10 @@
 .main-page *, .main-page *::before, .main-page *::after { box-sizing:border-box; }
 .main-page .el-card {
   border:1px solid rgba(255,255,255,.78); border-radius:26px; color:var(--ink); overflow:hidden;
+  /* Element Plus defaults to transition:all; never tween the glass filter. */
+  transition:none;
   background:linear-gradient(145deg,rgba(250,252,255,.72),rgba(238,244,255,.56) 48%,rgba(246,249,255,.69));
-  -webkit-backdrop-filter:blur(26px) saturate(1.28); backdrop-filter:blur(26px) saturate(1.28);
+  -webkit-backdrop-filter:blur(20px) saturate(1.25); backdrop-filter:blur(20px) saturate(1.25);
   box-shadow:0 22px 70px rgba(29,42,83,.19),0 3px 12px rgba(30,42,75,.07),inset 0 1px 0 rgba(255,255,255,.9);
 }
 .main-page .el-card::before {
@@ -27,8 +29,12 @@
   mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0); mask-composite:exclude;
 }
 .main-page .el-card::after { box-shadow:inset 1px 1px 0 rgba(255,255,255,.88),inset -1px -1px 0 rgba(255,255,255,.38); }
+.main-page[data-ai-dragging="true"] .el-card, .main-page[data-ai-motion="true"] .el-card {
+  -webkit-backdrop-filter:blur(12px) saturate(1.18); backdrop-filter:blur(12px) saturate(1.18);
+}
+.main-page[data-ai-dragging="true"] .el-card::before, .main-page[data-ai-motion="true"] .el-card::before { display:none; }
 .main-page .el-card__header { padding:15px 16px 13px; border-bottom:0; background:transparent; color:var(--ink); }
-.main-page .card-header { min-height:36px; gap:12px; }
+.main-page .card-header { min-height:36px; gap:12px; touch-action:none; }
 .main-page .card-header .title { min-width:0; justify-content:flex-start; }
 .main-page .ai-brand { display:flex; align-items:center; gap:10px; min-width:0; }
 .main-page .ai-brand-mark { display:grid; place-items:center; flex:0 0 34px; width:34px; height:34px; border:1px solid rgba(255,255,255,.5); border-radius:11px; background:linear-gradient(150deg,rgba(117,137,255,.96),rgba(67,86,219,.94)); color:#fff; box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 3px 8px rgba(70,91,234,.15); }
@@ -37,16 +43,16 @@
 .main-page .ai-brand-name { font-size:15px; line-height:1.35; font-weight:650; letter-spacing:-.3px; }
 .main-page .ai-brand-platform { color:var(--muted); font-size:10.5px; font-weight:400; line-height:1.4; }
 .main-page .warning-icon { margin-left:6px; }
-.main-page .ai-panel-toggle { display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; padding:0; border:1px solid rgba(255,255,255,.66); border-radius:50%; background:rgba(255,255,255,.33); color:#66728b; cursor:pointer; box-shadow:inset 0 1px 0 rgba(255,255,255,.68); transition:background-color 140ms,color 140ms,transform 140ms var(--ai-ease); }
+.main-page .ai-panel-toggle { display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; padding:0; border:1px solid rgba(255,255,255,.66); border-radius:50%; background:rgba(255,255,255,.33); color:#66728b; cursor:pointer; box-shadow:inset 0 1px 0 rgba(255,255,255,.68); transition:transform 140ms var(--ai-ease); }
 .main-page .ai-panel-toggle svg { width:14px; height:14px; pointer-events:none; }
 .main-page .el-card__body { max-height:var(--ai-body-space); padding:0 16px 16px; background:transparent; scroll-padding:12px; }
 .main-page .el-tabs__header { margin:0 0 18px; }
 .main-page .el-tabs__nav-wrap { padding:4px; border:1px solid var(--ai-glass-border); border-radius:14px; background:rgba(226,234,249,.28); }
 .main-page .el-tabs__nav-wrap:after { display:none; }
 .main-page .el-tabs__nav { display:flex; width:100%; }
-.main-page .el-tabs__item, .main-page .el-tabs__item.is-top, .main-page .el-tabs__item.is-active { position:relative; z-index:1; flex:1; height:32px; padding:0 8px; color:#59657e; font-size:12px; font-weight:500; transition:color 140ms; }
+.main-page .el-tabs__item, .main-page .el-tabs__item.is-top, .main-page .el-tabs__item.is-active { position:relative; z-index:1; flex:1; height:32px; padding:0 8px; color:#59657e; font-size:12px; font-weight:500; transition:none; }
 .main-page .el-tabs__item.is-active { color:#364ad5; font-weight:650; }
-.main-page .el-tabs__active-bar { z-index:0; top:0; height:32px; border-radius:10px; background:rgba(255,255,255,.74); box-shadow:0 2px 7px rgba(49,67,112,.09),inset 0 1px 0 rgba(255,255,255,.9); transition:transform 220ms var(--ai-ease); }
+.main-page .el-tabs__active-bar { z-index:0; top:0; height:32px; border-radius:10px; background:rgba(255,255,255,.74); box-shadow:0 2px 7px rgba(49,67,112,.09),inset 0 1px 0 rgba(255,255,255,.9); transition:transform 140ms var(--ai-ease); }
 .main-page .el-tabs__content { overflow:visible; }
 .main-page .script-home { padding:0; }
 .main-page .ai-overview { margin:0 0 20px; padding:18px; border:1px solid var(--ai-glass-border); border-radius:19px; background:linear-gradient(135deg,rgba(255,255,255,.46),rgba(222,232,255,.33)); box-shadow:inset 0 1px 0 rgba(255,255,255,.68),0 3px 12px rgba(48,65,110,.025); }
@@ -151,7 +157,7 @@
 .main-page .guide-title { font-size:17px; }
 .main-page .guide-number { color:#465bea; }
 .main-page button { touch-action:manipulation; }
-.main-page .ai-copy-logs, .main-page .ai-log-mode, .main-page .ai-fetch-models, .main-page .ai-reset-urls, .main-page .ai-save { transition:transform 150ms var(--ai-ease),background-color 150ms,color 150ms,opacity 150ms; }
+.main-page .ai-copy-logs, .main-page .ai-log-mode, .main-page .ai-fetch-models, .main-page .ai-reset-urls, .main-page .ai-save { transition:transform 150ms var(--ai-ease),opacity 150ms; }
 .main-page .ai-copy-logs:active, .main-page .ai-log-mode:active, .main-page .ai-panel-toggle:active, .main-page .ai-fetch-models:active, .main-page .ai-reset-urls:active, .main-page .ai-save:active { transform:scale(.975); transition-duration:0ms; }
 .main-page .ai-minimized-note { margin:0; padding:0 2px 2px; color:var(--muted); font-size:11px; }
 .main-page .ai-copy-logs:disabled { cursor:wait; opacity:.65; }
@@ -177,7 +183,7 @@
   .main-page .el-card::before { display:none; }
 }
 @media (prefers-reduced-transparency:reduce) {
-  .main-page .el-card { background:#edf2fc; -webkit-backdrop-filter:none; backdrop-filter:none; }
+  .main-page .el-card, .main-page[data-ai-dragging="true"] .el-card, .main-page[data-ai-motion="true"] .el-card { background:#edf2fc; -webkit-backdrop-filter:none; backdrop-filter:none; }
   .main-page .el-card::before { display:none; }
 }
 @media (prefers-reduced-motion:reduce) {
