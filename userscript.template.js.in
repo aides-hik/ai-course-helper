@@ -6259,11 +6259,11 @@
           const focused = content?.getRootNode()?.activeElement;
           if (focused && content.contains(focused)) panelRoot.value?.querySelector(".ai-panel-toggle")?.focus();
         }
-        void panelMotion.reveal(collapsed ? ".ai-minimized-note" : ".ai-panel-content", {offset: collapsed ? -3 : -4, duration: collapsed ? 100 : 160});
-      }, { flush: "post" });
+        void panelMotion.resize(collapsed ? ".ai-minimized-note" : ".ai-panel-content", {offset: collapsed ? -2 : -4, duration: collapsed ? 180 : 220});
+      }, { flush: "pre" });
       vue.watch(() => configStore.menuIndex, (next, previous) => {
-        if (!configStore.isMinus) void panelMotion.reveal(".el-tabs__content", {offset: Number(next) > Number(previous) ? 4 : -4, duration: 140, axis: "X"});
-      }, { flush: "post" });
+        if (!configStore.isMinus) void panelMotion.resize(".el-tabs__content", {offset: Number(next) > Number(previous) ? 4 : -4, duration: 140, axis: "X"});
+      }, { flush: "pre" });
       const stopConfigSync = watchConfigStorage(configStore);
       vue.onBeforeUnmount(stopConfigSync);
       vue.watch(configStore, (newVal) => {
@@ -6279,7 +6279,8 @@
           configStore.position.x = left;
           configStore.position.y = top;
         },
-        onDragState: (active) => { isDragging.value = active; if (active) panelMotion.cancel(); }
+        onBeforeDrag: () => panelMotion.cancel(),
+        onDragState: (active) => { isDragging.value = active; }
       });
       panelInteractions.fit();
       const handleVisibleChange = (visible2) => { isShow.value = visible2; };
@@ -6292,6 +6293,7 @@
           class: "main-page",
           "data-collapsed": configStore.isMinus ? "true" : "false"
         }, [
+          vue.createElementVNode("div", {class: "ai-glass-surface", "aria-hidden": "true"}),
           vue.createVNode(_component_el_card, {
             "close-on-click-modal": false,
             "lock-scroll": false,
@@ -6322,12 +6324,12 @@
                 })
               ])
             ]),
-            default: vue.withCtx(() => [
+            default: vue.withCtx(() => [vue.createElementVNode("div", {class: "ai-body-content"}, [
               vue.withDirectives(vue.createElementVNode("div", {
                 class: "ai-panel-content", "aria-hidden": configStore.isMinus ? "true" : "false", inert: configStore.isMinus || undefined
               }, [vue.createVNode(_sfc_main$3, { onCustomEvent: handleVisibleChange })]), [[vue.vShow, !configStore.isMinus]]),
               vue.withDirectives(vue.createElementVNode("p", { class: "ai-minimized-note" }, "已收起，学习任务继续运行"), [[vue.vShow, configStore.isMinus]])
-            ]),
+            ])]),
             _: 1
           })
         ]), [

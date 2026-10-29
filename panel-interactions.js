@@ -1,6 +1,6 @@
   // Direct manipulation stays outside the reactive render loop. Position and
   // viewport-dependent CSS are committed once, after the pointer is released.
-  const createPanelInteractions = ({element, initialPosition, onCommit, onDragState = () => {}}) => {
+  const createPanelInteractions = ({element, initialPosition, onCommit, onBeforeDrag = () => {}, onDragState = () => {}}) => {
     const view = window;
     const document2 = document;
     const requestFrame = typeof view.requestAnimationFrame === "function"
@@ -82,6 +82,8 @@
       if (event.target?.closest?.("button,input,textarea,select,a,[contenteditable=true]")) return false;
       const node = element();
       if (!node?.isConnected || !Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return false;
+      // Finish any size transition before measuring and locking the drag box.
+      onBeforeDrag();
       const rect = node.getBoundingClientRect();
       const capture = event.currentTarget;
       const card = node.querySelector?.(".el-card");

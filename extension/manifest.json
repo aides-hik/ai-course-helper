@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI 网课学习助手",
-  "version": "0.9.4",
+  "version": "0.9.5",
   "description": "超星、智慧树学习助手，支持 OpenAI / DeepSeek 文字及图片解题、章节诊断和可配置并发。",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "offscreen", "alarms"],

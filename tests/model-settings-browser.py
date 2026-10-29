@@ -145,13 +145,13 @@ setTimeout(async()=>{try{
   const stage=name=>fixtureResult.textContent=JSON.stringify({stage:name});
   const glassReport=()=>{
     if(!window.__glassBackground&&!window.__glassFallback)return undefined;
-    const card=shadow.querySelector('.el-card'),shell=getComputedStyle(card),edge=getComputedStyle(card,'::before');
-    fixtureAssert(/blur\(18px\)/.test(shell.backdropFilter),'Glass shell must preserve its standard blur');
+    const card=shadow.querySelector('.ai-glass-surface'),shell=getComputedStyle(card),edge=getComputedStyle(card,'::before');
+    fixtureAssert(/blur\(20px\)/.test(shell.backdropFilter),'Glass shell must preserve its standard blur');
     if(window.__glassFallback){
-      fixtureAssert(!shadow.querySelector('#course-helper-glass'),'SVG-disabled fixture must not create its refraction filter');
+      fixtureAssert(!shadow.querySelector('[id^="course-helper-glass-"]'),'SVG-disabled fixture must not create its refraction filter');
       fixtureAssert(!/url\(/.test(edge.backdropFilter)&&/blur\(/.test(edge.backdropFilter),'SVG fallback must retain the standard blurred rim');
     }
-    return {background:!!window.__glassBackground,mode:window.__glassFallback?'standard-blur':'svg-allowed',shellFilter:shell.backdropFilter,edgeFilter:edge.backdropFilter,svgFilter:!!shadow.querySelector('#course-helper-glass'),urlFieldBackground:getComputedStyle(requestUrl()).backgroundColor};
+    return {background:!!window.__glassBackground,mode:window.__glassFallback?'standard-blur':'svg-allowed',shellFilter:shell.backdropFilter,edgeFilter:edge.backdropFilter,svgFilter:!!shadow.querySelector('[id^="course-helper-glass-"]'),urlFieldBackground:getComputedStyle(requestUrl()).backgroundColor};
   };
   const saveVisible=()=>{
     const save=shadow.querySelector('.ai-save'),bounds=save?.getBoundingClientRect();
@@ -161,6 +161,8 @@ setTimeout(async()=>{try{
     return bounds;
   };
   const checkSaveAtScrollPositions=async()=>{
+    // This virtual-time settings fixture uses reduced motion; full geometric
+    // reveal and its final hit-testing run in panel-stability-browser.py.
     const scroll=shadow.querySelector('.ai-config-scroll'),savebar=shadow.querySelector('.ai-savebar'),save=shadow.querySelector('.ai-save');
     fixtureAssert(scroll&&savebar?.contains(save)&&!scroll.contains(save),'Save action must be outside the configuration scroll area');
     for(const fraction of [0,0.5,1]){scroll.scrollTop=(scroll.scrollHeight-scroll.clientHeight)*fraction;await fixtureTick();saveVisible();}
@@ -527,7 +529,7 @@ command = [
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe", "--headless", "--disable-gpu",
     "--no-first-run", "--no-default-browser-check", "--disable-extensions", "--disable-background-networking",
     "--allow-file-access-from-files", "--user-data-dir=" + str(ROOT / "tests" / ".model-settings-profile"),
-    f"--window-size={max(args.width,500)},900", "--virtual-time-budget=20000", "--dump-dom"
+    f"--window-size={max(args.width,500)},900", "--force-prefers-reduced-motion=reduce", "--virtual-time-budget=20000", "--dump-dom"
 ]
 if args.screenshot:
     if args.glass_background or args.glass_fallback:

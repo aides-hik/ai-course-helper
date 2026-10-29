@@ -4,7 +4,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'../panel-interactions.js'),'utf8');
 function events(){const map=new Map();return {addEventListener(name,fn){if(!map.has(name))map.set(name,new Set());map.get(name).add(fn);},removeEventListener(name,fn){map.get(name)?.delete(fn);},emit(name,event={}){for(const fn of [...map.get(name)||[]])fn(event);},count:()=>[...map.values()].reduce((count,entries)=>count+entries.size,0)};}
-function fixture({mounted=true,raf=true}={}){
+function fixture({mounted=true,raf=true,beforeDrag=()=>{}}={}){
   const frames=new Map(),screen=events(),doc=events(),capture=events(),commits=[],states=[],shields=[];
   let frameId=0,paints=0,transform='',x=32,y=80;
   const style={left:'32px',top:'80px',willChange:'',userSelect:''};
@@ -20,7 +20,7 @@ function fixture({mounted=true,raf=true}={}){
   const sandbox=vm.createContext({window:screen,document:doc});
   vm.runInContext(source+'\nglobalThis.create=createPanelInteractions;',sandbox);
   let visible=mounted;
-  const controller=sandbox.create({element:()=>visible?node:null,initialPosition:()=>({x:x+'px',y:y+'px'}),onCommit:(left,top)=>{commits.push({left,top});x=parseFloat(left);y=parseFloat(top);},onDragState:value=>states.push(value)});
+  const controller=sandbox.create({element:()=>visible?node:null,initialPosition:()=>({x:x+'px',y:y+'px'}),onCommit:(left,top)=>{commits.push({left,top});x=parseFloat(left);y=parseFloat(top);},onBeforeDrag:()=>beforeDrag({node,card}),onDragState:value=>states.push(value)});
   const mouse=(clientX=70,clientY=110,extra={})=>({clientX,clientY,button:0,currentTarget:capture,...extra});
   const pointer=(pointerId=1,clientX=70,clientY=110,extra={})=>mouse(clientX,clientY,{pointerId,isPrimary:true,...extra});
   return {controller,node,card,attrs,frames,screen,doc,capture,commits,states,shields,pointers,mouse,pointer,paints:()=>paints,
@@ -66,4 +66,12 @@ test('right clicks, secondary pointers, interactive controls and detached panels
 test('the pointer grip stays in place at start and disposal is idempotent',()=>{
   const h=fixture({raf:false});h.controller.startMouseDrag(h.mouse());assert.equal(h.node.style.left,'32px');assert.equal(h.node.style.top,'80px');assert.equal(h.paints(),0);
   h.doc.emit('mousemove',h.mouse(80,120));h.controller.dispose();h.controller.dispose();assert.equal(h.commits.length,1);assert.equal(h.screen.count(),0);assert.equal(h.doc.count(),0);assert.equal(h.frames.size,0);assert.equal(h.controller.startMouseDrag(h.mouse()),false);
+});
+test('a size transition finishes before the drag freezes its geometry',()=>{
+  let beforeCalls=0;
+  const h=fixture({beforeDrag:({card})=>{beforeCalls++;card.getBoundingClientRect=()=>({height:600});}});
+  h.card.getBoundingClientRect=()=>({height:200});
+  h.controller.startMouseDrag(h.mouse(70,110,{target:{closest:()=>({})}}));assert.equal(beforeCalls,0,'Interactive controls do not cancel an unrelated transition');
+  h.controller.startMouseDrag(h.mouse());assert.equal(beforeCalls,1);assert.equal(h.card.style.height,'600px');
+  h.controller.endDrag();assert.equal(h.card.style.height,'');
 });

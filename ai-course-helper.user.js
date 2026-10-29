@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         网课学习助手 · OpenAI / DeepSeek 解题版
 // @namespace    local.openai.course-helper
-// @version      0.9.4
+// @version      0.9.5
 // @description  超星/智慧树学习助手，支持 OpenAI / DeepSeek 文字及图片解题、可配置并发，默认关闭自动提交。
 // @license      MIT
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50' y='54' text-anchor='middle' dominant-baseline='central' font-size='82' font-family='Apple Color Emoji,Segoe UI Emoji,Noto Color Emoji,sans-serif'%3E%F0%9F%92%AF%3C/text%3E%3C/svg%3E
@@ -9250,7 +9250,7 @@
   const _hoisted_3 = { class: "minus" };
   // Direct manipulation stays outside the reactive render loop. Position and
   // viewport-dependent CSS are committed once, after the pointer is released.
-  const createPanelInteractions = ({element, initialPosition, onCommit, onDragState = () => {}}) => {
+  const createPanelInteractions = ({element, initialPosition, onCommit, onBeforeDrag = () => {}, onDragState = () => {}}) => {
     const view = window;
     const document2 = document;
     const requestFrame = typeof view.requestAnimationFrame === "function"
@@ -9332,6 +9332,8 @@
       if (event.target?.closest?.("button,input,textarea,select,a,[contenteditable=true]")) return false;
       const node = element();
       if (!node?.isConnected || !Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return false;
+      // Finish any size transition before measuring and locking the drag box.
+      onBeforeDrag();
       const rect = node.getBoundingClientRect();
       const capture = event.currentTarget;
       const card = node.querySelector?.(".el-card");
@@ -9388,57 +9390,74 @@
       }
     };
   };
-  // Short, interruptible compositor animations. State/focus never wait for them.
+  // A single clipped body owns the changing geometry. Its absolute glass
+  // sibling follows that box, keeping the shell and content on the same clock.
   const createPanelMotion = ({element, nextTick, isMounted = () => true}) => {
     let active = null, epoch = 0, disposed = false;
     const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
-    const restore = (record) => {
-      record.target.style.willChange = record.willChange;
+    const clear = () => {
+      const record = active;
+      active = null;
+      if (!record) return;
+      for (const animation of record.animations) animation.cancel();
+      for (const [node, styles] of record.styles) Object.assign(node.style, styles);
       if (record.root.dataset) delete record.root.dataset.aiMotion;
     };
-    const cancel = () => {
-      ++epoch;
-      const previous = active;
-      active = null;
-      if (previous) {previous.animation.cancel(); restore(previous);}
-    };
-    const reveal = async (selector, {offset = -4, duration = 160, axis = "Y"} = {}) => {
+    const cancel = () => {++epoch; clear();};
+    const height = node => node?.getBoundingClientRect?.().height || 0;
+    const run = async (selector, {offset = -4, duration = 160, axis = "Y", resize = false} = {}) => {
       const requested = ++epoch;
+      const previousRoot = element();
+      const previousTarget = previousRoot?.querySelector(selector);
+      const sampled = active?.target === previousTarget ? getComputedStyle(previousTarget) : null;
+      const current = sampled ? {opacity: sampled.opacity, transform: sampled.transform} : null;
+      // Capture the *visible* geometry before Vue changes vShow or the tab.
+      const before = resize ? height(previousRoot?.querySelector(".el-card__body")) : 0;
+      clear();
       await nextTick();
       if (disposed || requested !== epoch || !isMounted()) return;
       const root = element();
       const target = root?.querySelector(selector);
       if (!target || typeof target.animate !== "function" || document.visibilityState === "hidden" || root.dataset?.aiDragging === "true") {cancel(); return;}
       const reduced = !!media?.matches;
-      // Only an interrupted animation on this same target needs a style sample.
-      const current = active?.target === target ? getComputedStyle(target) : null;
       const initial = current ? {opacity: current.opacity, ...(reduced ? {} : {transform: current.transform})}
         : {opacity: .8, ...(reduced ? {} : {transform: axis === "X" ? `translate3d(${offset}px,0,0)` : `translate3d(0,${offset}px,0)`})};
       const final = {opacity: 1, ...(reduced ? {} : {transform: "none"})};
-      const old = active;
-      active = null;
-      if (old) {old.animation.cancel(); restore(old);}
-      const willChange = target.style.willChange;
-      target.style.willChange = reduced ? "opacity" : "transform, opacity";
+      const record = {root, target, animations: [], styles: new Map(), pending: 0};
+      const patch = (node, styles) => {
+        if (!record.styles.has(node)) record.styles.set(node, {});
+        const saved = record.styles.get(node);
+        for (const key of Object.keys(styles)) if (!(key in saved)) saved[key] = node.style[key] || "";
+        Object.assign(node.style, styles);
+      };
+      const timing = {duration: reduced ? 80 : Math.min(260, Math.max(80, duration)), easing: "cubic-bezier(0.22, 1, 0.36, 1)", fill: "both"};
+      const animate = (node, frames, willChange = "transform") => {
+        patch(node, {willChange});
+        const animation = node.animate(frames, timing);
+        record.animations.push(animation);
+        ++record.pending;
+        animation.onfinish = () => {if (active === record && --record.pending === 0) clear();};
+        animation.oncancel = () => {if (active === record) cancel();};
+      };
+      active = record;
       root.dataset.aiMotion = "true";
       try {
-        const animation = target.animate([initial, final], {
-          duration: reduced ? 80 : Math.min(220, Math.max(80, duration)), easing: "cubic-bezier(0.22, 1, 0.36, 1)"
-        });
-        const record = {root, target, animation, willChange};
-        active = record;
-        const finished = () => {if (active === record) {active = null; restore(record);}};
-        animation.onfinish = finished;
-        animation.oncancel = finished;
-      } catch {
-        target.style.willChange = willChange;
-        delete root.dataset.aiMotion;
-      }
+        if (resize && !reduced) {
+          const body = root.querySelector(".el-card__body"), endHeight = height(body);
+          if (body && before && endHeight && Math.abs(before - endHeight) >= .5) {
+            // A deliberate card resize: only this bounded viewport changes
+            // height. No scaled text, corners, shadow or independent shell tick.
+            patch(body, {overflow: "hidden"});
+            animate(body, [{height: `${before}px`}, {height: `${endHeight}px`}], "height");
+          }
+        }
+        animate(target, [initial, final], reduced ? "opacity" : "transform, opacity");
+      } catch {cancel();}
     };
     const hidden = () => {if (document.visibilityState === "hidden") cancel();};
     document.addEventListener("visibilitychange", hidden);
     media?.addEventListener?.("change", cancel);
-    return {reveal, cancel, dispose() {
+    return {reveal: (selector, options) => run(selector, options), resize: (selector, options) => run(selector, {...options, resize: true}), cancel, dispose() {
       if (disposed) return;
       disposed = true; cancel();
       document.removeEventListener("visibilitychange", hidden);
@@ -9464,11 +9483,11 @@
           const focused = content?.getRootNode()?.activeElement;
           if (focused && content.contains(focused)) panelRoot.value?.querySelector(".ai-panel-toggle")?.focus();
         }
-        void panelMotion.reveal(collapsed ? ".ai-minimized-note" : ".ai-panel-content", {offset: collapsed ? -3 : -4, duration: collapsed ? 100 : 160});
-      }, { flush: "post" });
+        void panelMotion.resize(collapsed ? ".ai-minimized-note" : ".ai-panel-content", {offset: collapsed ? -2 : -4, duration: collapsed ? 180 : 220});
+      }, { flush: "pre" });
       vue.watch(() => configStore.menuIndex, (next, previous) => {
-        if (!configStore.isMinus) void panelMotion.reveal(".el-tabs__content", {offset: Number(next) > Number(previous) ? 4 : -4, duration: 140, axis: "X"});
-      }, { flush: "post" });
+        if (!configStore.isMinus) void panelMotion.resize(".el-tabs__content", {offset: Number(next) > Number(previous) ? 4 : -4, duration: 140, axis: "X"});
+      }, { flush: "pre" });
       const stopConfigSync = watchConfigStorage(configStore);
       vue.onBeforeUnmount(stopConfigSync);
       vue.watch(configStore, (newVal) => {
@@ -9484,7 +9503,8 @@
           configStore.position.x = left;
           configStore.position.y = top;
         },
-        onDragState: (active) => { isDragging.value = active; if (active) panelMotion.cancel(); }
+        onBeforeDrag: () => panelMotion.cancel(),
+        onDragState: (active) => { isDragging.value = active; }
       });
       panelInteractions.fit();
       const handleVisibleChange = (visible2) => { isShow.value = visible2; };
@@ -9497,6 +9517,7 @@
           class: "main-page",
           "data-collapsed": configStore.isMinus ? "true" : "false"
         }, [
+          vue.createElementVNode("div", {class: "ai-glass-surface", "aria-hidden": "true"}),
           vue.createVNode(_component_el_card, {
             "close-on-click-modal": false,
             "lock-scroll": false,
@@ -9527,12 +9548,12 @@
                 })
               ])
             ]),
-            default: vue.withCtx(() => [
+            default: vue.withCtx(() => [vue.createElementVNode("div", {class: "ai-body-content"}, [
               vue.withDirectives(vue.createElementVNode("div", {
                 class: "ai-panel-content", "aria-hidden": configStore.isMinus ? "true" : "false", inert: configStore.isMinus || undefined
               }, [vue.createVNode(_sfc_main$3, { onCustomEvent: handleVisibleChange })]), [[vue.vShow, !configStore.isMinus]]),
               vue.withDirectives(vue.createElementVNode("p", { class: "ai-minimized-note" }, "已收起，学习任务继续运行"), [[vue.vShow, configStore.isMinus]])
-            ]),
+            ])]),
             _: 1
           })
         ]), [
@@ -9585,10 +9606,16 @@
   --el-font-family:"Segoe UI","Noto Sans SC","Microsoft YaHei UI","PingFang SC",sans-serif;
   --app-font-family:var(--el-font-family);
   --ai-body-space:max(0px,calc(100dvh - var(--ai-panel-top,32px) - 78px));
-  width:396px; max-width:calc(100vw - 16px); color:var(--ink); font-family:var(--el-font-family); -webkit-font-smoothing:antialiased;
+  width:396px; max-width:calc(100vw - 16px); color:var(--ink); font-family:var(--el-font-family); -webkit-font-smoothing:antialiased; isolation:isolate;
 }
 .main-page *, .main-page *::before, .main-page *::after { box-sizing:border-box; }
 .main-page .el-card {
+  position:relative; z-index:1; border:0; border-radius:26px; color:var(--ink); overflow:hidden;
+  background:transparent; box-shadow:none; -webkit-backdrop-filter:none; backdrop-filter:none; transition:none;
+}
+.main-page .el-card::before, .main-page .el-card::after { content:none; display:none; }
+.main-page .ai-glass-surface {
+  position:absolute; inset:0; z-index:0; pointer-events:none;
   border:1px solid rgba(255,255,255,.78); border-radius:26px; color:var(--ink); overflow:hidden;
   /* Element Plus defaults to transition:all; never tween the glass filter. */
   transition:none;
@@ -9596,19 +9623,15 @@
   -webkit-backdrop-filter:blur(20px) saturate(1.25); backdrop-filter:blur(20px) saturate(1.25);
   box-shadow:0 22px 70px rgba(29,42,83,.19),0 3px 12px rgba(30,42,75,.07),inset 0 1px 0 rgba(255,255,255,.9);
 }
-.main-page .el-card::before {
+.main-page .ai-glass-surface::before {
   content:""; position:absolute; inset:0; z-index:0; padding:2px; border-radius:inherit; pointer-events:none;
   background:linear-gradient(125deg,rgba(255,255,255,.5),transparent 38%,rgba(213,228,255,.12) 68%,rgba(255,255,255,.32));
   -webkit-backdrop-filter:var(--ai-glass-edge-filter,blur(3px)); backdrop-filter:var(--ai-glass-edge-filter,blur(3px));
   -webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0); -webkit-mask-composite:xor;
   mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0); mask-composite:exclude;
 }
-.main-page .el-card::after { box-shadow:inset 1px 1px 0 rgba(255,255,255,.88),inset -1px -1px 0 rgba(255,255,255,.38); }
-.main-page[data-ai-dragging="true"] .el-card, .main-page[data-ai-motion="true"] .el-card {
-  -webkit-backdrop-filter:blur(12px) saturate(1.18); backdrop-filter:blur(12px) saturate(1.18);
-}
-.main-page[data-ai-dragging="true"] .el-card::before, .main-page[data-ai-motion="true"] .el-card::before { display:none; }
-.main-page .el-card__header { padding:15px 16px 13px; border-bottom:0; background:transparent; color:var(--ink); }
+.main-page .ai-glass-surface::after { content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none; box-shadow:inset 1px 1px 0 rgba(255,255,255,.88),inset -1px -1px 0 rgba(255,255,255,.38); }
+.main-page .el-card__header { padding:16px 17px 13px; border-bottom:0; background:transparent; color:var(--ink); }
 .main-page .card-header { min-height:36px; gap:12px; touch-action:none; }
 .main-page .card-header .title { min-width:0; justify-content:flex-start; }
 .main-page .ai-brand { display:flex; align-items:center; gap:10px; min-width:0; }
@@ -9620,7 +9643,7 @@
 .main-page .warning-icon { margin-left:6px; }
 .main-page .ai-panel-toggle { display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; padding:0; border:1px solid rgba(255,255,255,.66); border-radius:50%; background:rgba(255,255,255,.33); color:#66728b; cursor:pointer; box-shadow:inset 0 1px 0 rgba(255,255,255,.68); transition:transform 140ms var(--ai-ease); }
 .main-page .ai-panel-toggle svg { width:14px; height:14px; pointer-events:none; }
-.main-page .el-card__body { max-height:var(--ai-body-space); padding:0 16px 16px; background:transparent; scroll-padding:12px; }
+.main-page .el-card__body { max-height:var(--ai-body-space); padding:0 17px 17px; background:transparent; scroll-padding:12px; }
 .main-page .el-tabs__header { margin:0 0 18px; }
 .main-page .el-tabs__nav-wrap { padding:4px; border:1px solid var(--ai-glass-border); border-radius:14px; background:rgba(226,234,249,.28); }
 .main-page .el-tabs__nav-wrap:after { display:none; }
@@ -9754,12 +9777,12 @@
   .main-page .log .el-scrollbar__view > div.ai-log-entry { grid-template-columns:43px 5px minmax(0,1fr); gap:6px; }
 }
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
-  .main-page .el-card { background:#edf2fc; }
-  .main-page .el-card::before { display:none; }
+  .main-page .ai-glass-surface { background:#edf2fc; }
+  .main-page .ai-glass-surface::before { display:none; }
 }
 @media (prefers-reduced-transparency:reduce) {
-  .main-page .el-card, .main-page[data-ai-dragging="true"] .el-card, .main-page[data-ai-motion="true"] .el-card { background:#edf2fc; -webkit-backdrop-filter:none; backdrop-filter:none; }
-  .main-page .el-card::before { display:none; }
+  .main-page .ai-glass-surface { background:#edf2fc; -webkit-backdrop-filter:none; backdrop-filter:none; }
+  .main-page .ai-glass-surface::before { display:none; }
 }
 @media (prefers-reduced-motion:reduce) {
   .main-page .el-tabs__active-bar, .main-page .ai-config summary::before { transition:none; }
@@ -9782,8 +9805,8 @@
     ];
     return mountNode;
   };
-  // The shell keeps CSS glass continuously. This optional, single-pass rim is
-  // prepared only while idle, and never follows pointer or animation frames.
+  // Keep one normalized optical map for the lifetime of the panel. Geometry
+  // changes stretch this map; they never reload a filter image mid-transition.
   let liquidGlassSequence = 0;
   const attachLiquidGlass = (mountNode) => {
     const noop = () => {};
@@ -9792,124 +9815,137 @@
     if (safariOnly || !CSS.supports("backdrop-filter", "url(#lg)") || !root?.appendChild) return noop;
     const preference = window.matchMedia?.("(prefers-reduced-transparency: reduce)");
     const filterId = "course-helper-glass-" + ++liquidGlassSequence;
-    const maps = new Map();
-    let card = null, panel = null, svg = null, feImage = null;
-    let resize = null, presence = null, state = null;
-    let timer = null, idle = null, lastSize = "";
-    let disposed = false, suspended = false;
+    const filterValue = "url(#" + filterId + ") blur(1px) saturate(1.1)";
+    let surface = null, panel = null, svg = null, feImage = null;
+    let presence = null, state = null, timer = null, idle = null, frame = null;
+    let mapData = null, decodedImage = null, decoded = false, decoding = false, mapReady = false;
+    let failed = false, disposed = false, suspended = false;
     const blocked = () => disposed || suspended || document.hidden || preference?.matches ||
       panel?.getAttribute("data-ai-dragging") === "true" || panel?.getAttribute("data-ai-motion") === "true";
     const cancel = () => {
       if (timer !== null) clearTimeout(timer);
       if (idle !== null) window.cancelIdleCallback?.(idle);
-      timer = idle = null;
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      timer = idle = frame = null;
     };
     const removeFilter = () => {
-      card?.style.removeProperty("--ai-glass-edge-filter");
-      svg?.remove(); svg = feImage = null; lastSize = "";
+      surface?.style.removeProperty("--ai-glass-edge-filter");
+      svg?.remove(); svg = feImage = null; mapReady = false;
     };
-    const filter = () => {
-      if (svg) return;
-      const create = name => document.createElementNS("http://www.w3.org/2000/svg", name);
-      svg = create("svg"); svg.setAttribute("width", "0"); svg.setAttribute("height", "0");
-      svg.setAttribute("aria-hidden", "true"); svg.style.cssText = "position:absolute;width:0;height:0;pointer-events:none";
-      const defs = create("defs"), effect = create("filter"), displaced = create("feDisplacementMap");
-      effect.id = filterId; effect.setAttribute("color-interpolation-filters", "sRGB");
-      effect.setAttribute("x", "0"); effect.setAttribute("y", "0");
-      effect.setAttribute("width", "100%"); effect.setAttribute("height", "100%");
-      feImage = create("feImage"); feImage.setAttribute("result", "map"); feImage.setAttribute("preserveAspectRatio", "none");
-      displaced.setAttribute("in", "SourceGraphic"); displaced.setAttribute("in2", "map");
-      displaced.setAttribute("scale", "-34"); displaced.setAttribute("xChannelSelector", "R"); displaced.setAttribute("yChannelSelector", "B");
-      effect.append(feImage, displaced); defs.appendChild(effect); svg.appendChild(defs); root.appendChild(svg);
+    const attach = () => {
+      if (!mapReady || blocked() || !surface?.isConnected) return;
+      if (surface.style.getPropertyValue("--ai-glass-edge-filter") !== filterValue)
+        surface.style.setProperty("--ai-glass-edge-filter", filterValue);
     };
-    const mapFor = (width, height, radius, key) => {
-      if (maps.has(key)) {const value = maps.get(key); maps.delete(key); maps.set(key, value); return value;}
-      const scale = Math.min(1, 384 / Math.max(width, height));
+    const map = () => {
+      if (mapData) return mapData;
       const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(width * scale)); canvas.height = Math.max(1, Math.round(height * scale));
+      canvas.width = canvas.height = 384;
       const context = canvas.getContext("2d");
       if (!context) throw new Error("Glass canvas unavailable");
-      const horizontal = context.createLinearGradient(0, 0, canvas.width, 0);
+      const horizontal = context.createLinearGradient(0, 0, 384, 0);
       horizontal.addColorStop(0, "rgb(0,0,0)"); horizontal.addColorStop(1, "rgb(255,0,0)");
-      context.fillStyle = horizontal; context.fillRect(0, 0, canvas.width, canvas.height);
-      const vertical = context.createLinearGradient(0, 0, 0, canvas.height);
+      context.fillStyle = horizontal; context.fillRect(0, 0, 384, 384);
+      const vertical = context.createLinearGradient(0, 0, 0, 384);
       vertical.addColorStop(0, "rgb(0,0,0)"); vertical.addColorStop(1, "rgb(0,0,255)");
-      context.globalCompositeOperation = "difference"; context.fillStyle = vertical; context.fillRect(0, 0, canvas.width, canvas.height);
+      context.globalCompositeOperation = "difference"; context.fillStyle = vertical; context.fillRect(0, 0, 384, 384);
       context.globalCompositeOperation = "source-over";
-      const inset = Math.max(2, Math.round(Math.min(canvas.width, canvas.height) * 0.08));
       context.filter = "blur(7px)"; context.fillStyle = "rgba(128,128,128,0.94)"; context.beginPath();
-      const corner = Math.max(radius * scale - inset, 2);
-      if (typeof context.roundRect === "function") context.roundRect(inset, inset, canvas.width - inset * 2, canvas.height - inset * 2, corner);
-      else context.rect(inset, inset, canvas.width - inset * 2, canvas.height - inset * 2);
-      context.fill();
-      const value = canvas.toDataURL(); maps.set(key, value);
-      if (maps.size > 4) maps.delete(maps.keys().next().value);
-      return value;
+      if (typeof context.roundRect === "function") context.roundRect(30, 30, 324, 324, 12);
+      else context.rect(30, 30, 324, 324);
+      context.fill(); mapData = canvas.toDataURL(); return mapData;
     };
-    const apply = () => {
-      if (blocked() || !card?.isConnected) return;
-      const width = Math.round(card.offsetWidth), height = Math.round(card.offsetHeight);
-      if (width < 40 || height < 40) return;
-      const radius = parseFloat(getComputedStyle(card).borderTopLeftRadius) || 26;
-      const key = width + ":" + height + ":" + radius;
-      if (key === lastSize) return;
+    const warm = () => {
+      if (blocked() || !svg || mapReady || frame !== null) return;
+      // decode() has primed the shared image cache. Give the new SVG resource
+      // two render opportunities before making it visible through CSS.
+      frame = window.requestAnimationFrame(() => {
+        frame = null;
+        if (blocked() || !svg) return;
+        frame = window.requestAnimationFrame(() => {
+          frame = null;
+          if (blocked() || !svg) return;
+          mapReady = true; attach();
+        });
+      });
+    };
+    const prepare = async () => {
+      if (blocked() || failed || decoding || !surface?.isConnected) return;
+      if (svg) {warm(); attach(); return;}
+      decoding = true;
       try {
-        const map = mapFor(width, height, radius, key);
-        filter(); feImage.setAttribute("href", map); feImage.setAttribute("width", String(width)); feImage.setAttribute("height", String(height));
-        card.style.setProperty("--ai-glass-edge-filter", "url(#" + filterId + ") blur(1px) saturate(1.1)");
-        lastSize = key;
-      } catch {removeFilter();}
+        const data = map();
+        if (!decoded) {
+          const image = decodedImage = new window.Image();
+          image.src = data;
+          await image.decode();
+          if (disposed || decodedImage !== image) return;
+          decoded = true;
+        }
+        if (blocked() || !surface?.isConnected) return;
+        const create = name => document.createElementNS("http://www.w3.org/2000/svg", name);
+        svg = create("svg"); svg.setAttribute("width", "0"); svg.setAttribute("height", "0");
+        svg.setAttribute("aria-hidden", "true"); svg.style.cssText = "position:absolute;width:0;height:0;pointer-events:none";
+        const defs = create("defs"), effect = create("filter"), displaced = create("feDisplacementMap");
+        effect.id = filterId; effect.setAttribute("color-interpolation-filters", "sRGB");
+        effect.setAttribute("filterUnits", "objectBoundingBox");
+        effect.setAttribute("x", "0"); effect.setAttribute("y", "0");
+        effect.setAttribute("width", "100%"); effect.setAttribute("height", "100%");
+        const image = feImage = create("feImage");
+        image.setAttribute("result", "map"); image.setAttribute("preserveAspectRatio", "none");
+        image.setAttribute("x", "0"); image.setAttribute("y", "0");
+        image.setAttribute("width", "100%"); image.setAttribute("height", "100%");
+        displaced.setAttribute("in", "SourceGraphic"); displaced.setAttribute("in2", "map");
+        displaced.setAttribute("scale", "-34"); displaced.setAttribute("xChannelSelector", "R"); displaced.setAttribute("yChannelSelector", "B");
+        effect.append(image, displaced); defs.appendChild(effect); svg.appendChild(defs); root.appendChild(svg);
+        image.setAttribute("href", data);
+        warm();
+      } catch {if (!disposed) {failed = true; removeFilter();}}
+      finally {decoding = false;}
     };
     const schedule = () => {
       cancel();
-      if (blocked()) return;
+      if (blocked() || failed) return;
+      if (mapReady) {attach(); return;}
+      if (svg) {warm(); return;}
+      if (decoding) return;
       timer = setTimeout(() => {
         timer = null;
         if (blocked()) return;
-        if (typeof window.requestIdleCallback === "function") idle = window.requestIdleCallback(() => {idle = null; apply();}, {timeout: 500});
-        else apply();
+        if (typeof window.requestIdleCallback === "function") idle = window.requestIdleCallback(() => {idle = null; prepare();}, {timeout: 500});
+        else prepare();
       }, 120);
     };
-    const syncState = () => {
-      if (blocked()) cancel(); else schedule();
-    };
-    const find = () => {
+    const syncState = () => {if (blocked()) cancel(); else schedule();};
+    const find = (force = false) => {
       if (disposed || suspended) return;
-      const found = mountNode.querySelector(".el-card");
-      if (found === card && card?.isConnected) return;
-      card?.style.removeProperty("--ai-glass-edge-filter");
-      card = found; panel = card?.closest?.(".main-page") || null; lastSize = "";
-      resize?.disconnect(); state?.disconnect(); presence?.disconnect();
-      if (!presence && typeof MutationObserver === "function") presence = new MutationObserver(find);
+      const found = mountNode.querySelector(".ai-glass-surface") || mountNode.querySelector(".el-card");
+      if (!force && found === surface && surface?.isConnected) return;
+      if (found !== surface) surface?.style.removeProperty("--ai-glass-edge-filter");
+      surface = found; panel = surface?.closest?.(".main-page") || null;
+      state?.disconnect(); presence?.disconnect();
+      if (!presence && typeof MutationObserver === "function") presence = new MutationObserver(() => find());
       if (presence) {
-        const parents = new Set([mountNode, panel?.parentElement, card?.parentElement].filter(Boolean));
-        for (const parent of parents) presence.observe(parent, {childList: true, subtree: !card});
-      }
-      if (card && typeof ResizeObserver === "function") {
-        if (!resize) resize = new ResizeObserver(schedule);
-        resize.observe(card);
+        const parents = new Set([mountNode, panel, panel?.parentElement, surface?.parentElement].filter(Boolean));
+        for (const parent of parents) presence.observe(parent, {childList: true, subtree: !surface});
       }
       if (panel && typeof MutationObserver === "function") {
         if (!state) state = new MutationObserver(syncState);
-        // Do not observe style: dragging updates transform on this element.
         state.observe(panel, {attributes: true, attributeFilter: ["data-ai-dragging", "data-ai-motion", "hidden"]});
       }
       schedule();
     };
-    const pause = () => {suspended = true; cancel(); resize?.disconnect(); state?.disconnect(); presence?.disconnect();};
-    const resume = () => {
-      if (disposed) return;
-      suspended = false;
-      // Force a fresh binding; an element may have been replaced while hidden.
-      card?.style.removeProperty("--ai-glass-edge-filter"); card = panel = null; lastSize = ""; find();
-    };
+    const pause = () => {suspended = true; cancel(); state?.disconnect(); presence?.disconnect();};
+    const resume = () => {if (!disposed) {suspended = false; find(true);}};
     const visibility = () => {if (document.hidden) pause(); else resume();};
-    const preferenceChanged = () => {if (preference?.matches) {cancel(); removeFilter();} else schedule();};
+    // Preserve a prepared graph while CSS removes its reduced-transparency
+    // consumer. Restoring the preference must not reload the optical image.
+    const preferenceChanged = () => {if (preference?.matches) cancel(); else schedule();};
     const hide = event => {if (event.persisted) pause(); else dispose();};
     const show = event => {if (event.persisted) resume();};
     const dispose = () => {
       if (disposed) return;
-      disposed = true; pause(); removeFilter(); maps.clear(); card = panel = null;
+      disposed = true; pause(); removeFilter(); mapData = decodedImage = null; surface = panel = null;
       document.removeEventListener("visibilitychange", visibility);
       window.removeEventListener("pagehide", hide); window.removeEventListener("pageshow", show);
       preference?.removeEventListener?.("change", preferenceChanged);
