@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         网课学习助手 · OpenAI / DeepSeek 解题版
 // @namespace    local.openai.course-helper
-// @version      0.9.5
+// @version      0.9.7
 // @description  超星/智慧树学习助手，支持 OpenAI / DeepSeek 文字及图片解题、可配置并发，默认关闭自动提交。
 // @license      MIT
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50' y='54' text-anchor='middle' dominant-baseline='central' font-size='82' font-family='Apple Color Emoji,Segoe UI Emoji,Noto Color Emoji,sans-serif'%3E%F0%9F%92%AF%3C/text%3E%3C/svg%3E
@@ -2161,6 +2161,12 @@
     const reason = reasonText.split("；")[0];
     const jump = jumpEntry ? logCleanDiagnostic(jumpEntry.message).replace(/^\[章节诊断\] 跳章：/, "") : "";
     const total = snapshot?.total || 0, completed = Math.min(total, snapshot?.completed || 0);
+    if (snapshot && !total && /^本章节无任务/.test(reason)) {
+      const attention = /按钮不可用|无法确定|失败/.test(reasonText) || /已取消|已停止/.test(jump);
+      return {state: attention ? "attention" : "waiting", total: 0, completed: 0,
+        badge: attention ? "待核对" : "无任务", title: "本章节没有学习任务",
+        note: jump || reason, progress: "0 个任务"};
+    }
     if (total) {
       const complete = completed === total;
       const media = recent.filter(entry => /^\[章节诊断\] 页面#.*(?:视频|音频)/.test(logMessage(entry)));
@@ -7905,6 +7911,8 @@
     const HOME_TAB_NAME = "0";
     const ANSWER_TAB_NAME2 = "1";
     const PDF_COMPLETION_WAIT_SECONDS = 5;
+    const EMPTY_CHAPTER_STABLE_MS = 5000;
+    const emptyChapterStates = new WeakMap();
     let runningIframeDocumentTasks = /* @__PURE__ */ new WeakMap();
     let attemptedIframeDocuments = /* @__PURE__ */ new WeakMap();
     let currentPage;
@@ -8036,6 +8044,65 @@
         return parsed.protocol === "about:" ? "about:blank/srcdoc" : parsed.protocol + "（地址已省略）";
       } catch { return "无法解析的地址（已省略）"; }
     };
+    const inspectEmptyChapter = (scope, frames, tasks) => {
+      const iframe = scope.iframe;
+      let doc;
+      try { doc = iframe?.contentDocument; } catch { /* inaccessible is never empty */ }
+      const reject = (reason = "") => {
+        if (doc) emptyChapterStates.delete(doc);
+        return {empty: false, emptyReady: false, emptyReason: reason};
+      };
+      if (scope.reason || !doc || !doc.body || !iframe.isConnected || doc.readyState !== "complete" || frames.length !== 1 || tasks.length || frames.some(frame => frame.blocked)) return reject();
+      const cardsAddress = address => {
+        try { return /\/knowledge\/cards(?:\/|$)/i.test(new URL(address, window.location.href).pathname); }
+        catch { return false; }
+      };
+      // An unknown frame, srcdoc placeholder or loaded login/error redirect
+      // is not proof that the actual chapter has loaded and is empty.
+      if (!cardsAddress(iframe.src) || !cardsAddress(doc.URL)) return reject();
+      try {
+        // A spinner/error can be visible while intentionally non-interactive.
+        // Navigation's disabled/pointer-events checks do not apply to it.
+        const visible = node => {
+          if (node.isConnected === false) return false;
+          for (let current = node; current; current = current.parentElement) {
+            const style = doc.defaultView?.getComputedStyle?.(current) || current.style;
+            if (current.hidden || style?.display === "none" || style?.visibility === "hidden" || style?.visibility === "collapse" || style?.opacity && Number(style.opacity) === 0) return false;
+          }
+          return typeof node.getClientRects !== "function" || node.getClientRects().length > 0;
+        };
+        const platformEmpty = Array.from(doc.querySelectorAll(".nullpage")).find(node =>
+          node.parentElement?.classList?.contains("ans-cc") && visible(node) && node.innerText?.trim() === "暂无内容"
+          && node.querySelector("dd")?.innerText?.trim() === "暂无内容");
+        // Chaoxing keeps a source-less audition helper even on its real empty
+        // page. Exempt only that exact, hidden helper beside the empty marker.
+        const emptyAudioHelper = node => platformEmpty && node.tagName === "AUDIO" && node.id === "auditionAudio"
+          && !visible(node) && !node.getAttribute("src")?.trim() && !node.currentSrc && !node.srcObject
+          && !node.querySelector("source") && !node.closest(".ans-attach-ct,.ans-job-icon,[data-module],[data-objectid]")
+          && node.parentElement === platformEmpty.parentElement?.parentElement && node.parentElement?.classList?.contains("wrap");
+        const resourceSelectors = [".ans-attach-ct", ".ans-job-icon", "[data-module]", "[data-objectid]", "video", "audio", "object", "embed"];
+        const resource = Array.from(doc.querySelectorAll(resourceSelectors.join(","))).find(node => !emptyAudioHelper(node));
+        if (resource) {
+          const kind = resourceSelectors.find(selector => resource.matches?.(selector)) || "未知资源";
+          return reject("章节仍有任务或资源占位（" + kind + "），等待加载");
+        }
+        const pending = '[aria-busy="true"],[data-loading="true"],.loading,.loading-mask,.loadingMask,.el-loading-mask,.ans-loading';
+        if (Array.from(doc.querySelectorAll(pending)).some(visible)) return reject("章节仍显示加载状态，等待平台加载");
+        const errors = '.error-page,.errorPage,.network-error,[data-load-error],.ans-error,input[type="password"]';
+        if (Array.from(doc.querySelectorAll(errors)).some(visible) || /^(?:错误|出错|加载失败|页面不存在|访问被拒绝|登录|登录验证)/.test((doc.title || "").trim())) return reject("章节显示错误或登录页面，无法确认为空章节");
+        // The outer observer cannot see mutations inside this document.
+        // Compare only taskless content, and keep it in memory, never in logs.
+        const signature = doc.body.innerHTML ?? doc.body.textContent ?? "";
+        const previous = emptyChapterStates.get(doc);
+        const now = Date.now();
+        const url = window.location.href, src = iframe.src, documentUrl = doc.URL;
+        if (!previous || previous.signature !== signature || previous.url !== url || previous.src !== src || previous.documentUrl !== documentUrl)
+          emptyChapterStates.set(doc, {signature, url, src, documentUrl, since: now});
+        const state = emptyChapterStates.get(doc);
+        return {empty: true, emptyReady: now - state.since >= EMPTY_CHAPTER_STABLE_MS,
+          emptyReason: now - state.since < EMPTY_CHAPTER_STABLE_MS ? "本章节无任务，等待页面稳定 5 秒" : ""};
+      } catch { return reject("读取无任务章节状态失败，等待重新检查"); }
+    };
     const inspectChapterCompletion = (root, collection) => {
       const scope = collection?.scope || getChapterScope(root);
       const frames = (collection?.iframes || collectChapterFrames(root, scope)).filter((iframe) => !/^javascript:/i.test(iframe.src || "")).map((iframe) => {
@@ -8081,7 +8148,9 @@
           iconCount: iconInfo.icons, resourceCount: iconInfo.frames };
       });
       const tasks = frames.filter((frame) => frame.task);
-      return { frames, tasks, scope, complete: !scope.reason && tasks.length > 0 && !frames.some((frame) => frame.blocked) };
+      const emptyState = inspectEmptyChapter(scope, frames, tasks);
+      return { frames, tasks, scope, ...emptyState,
+        complete: !scope.reason && (tasks.length > 0 || emptyState.emptyReady) && !frames.some((frame) => frame.blocked) };
     };
     const canAdvanceChapter = (root) => inspectChapterCompletion(root).complete;
     const logChapterNavigation = (message) => {
@@ -8102,11 +8171,12 @@
         const blocked = report.frames.filter((frame) => frame.blocked);
         const reason = report.scope.reason || (!report.frames.length ? "未发现章节 iframe"
           : blocked.length ? blocked.slice(0, 20).map((frame) => "页面#" + frame.number + "：" + frame.blocked).join("；") + (blocked.length > 20 ? "；另有 " + (blocked.length - 20) + " 个阻塞页面" : "")
-          : !report.tasks.length ? "未识别到任务页面"
-          : !autoNext ? "平台任务已完成，自动跳章开关关闭"
+          : report.emptyReason ? report.emptyReason
+          : !report.tasks.length && !report.empty ? "未识别到任务页面"
+          : !autoNext ? (report.empty ? "本章节无任务，自动跳章开关关闭" : "平台任务已完成，自动跳章开关关闭")
           : Date.now() - lastFrameChange < 1500 ? "平台任务已完成，等待页面稳定 1.5 秒"
-          : !navigation.element ? "平台任务已完成，下一步按钮不可用（" + navigation.reason + "）"
-          : navigationPending ? "已进入跳章流程，等待平台页面切换" : "完成条件满足，可以跳章");
+          : !navigation.element ? (report.empty ? "本章节无任务，下一步按钮不可用（" : "平台任务已完成，下一步按钮不可用（") + navigation.reason + "）"
+          : navigationPending ? "已进入跳章流程，等待平台页面切换" : report.empty ? "本章节无任务，页面已加载稳定，可以跳章" : "完成条件满足，可以跳章");
         const slowFrame = activeScan?.frame && Date.now() - activeScan.frameStartedAt >= 1000 ? frameNumber(activeScan.frame) : 0;
         const processing = slowFrame ? "正在处理页面#" + slowFrame : phase || "扫描状态";
         // The playback position is useful in the message but must not make a
@@ -8143,7 +8213,8 @@
       const report = inspectChapterCompletion(root, collection);
       const complete = report.complete;
       logChapterDiagnostics(root, "", report);
-      const message = complete ? "平台已确认本页任务完成" : "本页任务仍在处理中，完成后继续按设置切换。";
+      const message = report.empty ? complete ? "本章节无任务，页面已加载稳定" : "本章节无任务，正在等待页面稳定后按设置切换。"
+        : complete ? "平台已确认本页任务完成" : "本页任务仍在处理中，完成后继续按设置切换。";
       if (message !== lastCompletionMessage) {
         lastCompletionMessage = message;
         logStore.addLog(message, complete ? "success" : "info");
@@ -8184,7 +8255,7 @@
       const afterCollection = collectChapterState(root);
       const after = chapterSnapshot(root, afterCollection.iframes);
       const afterReport = inspectChapterCompletion(root, afterCollection);
-      if (!sameFrameSnapshot(before, after) || !afterReport.complete) {
+      if (!sameFrameSnapshot(before, after) || !afterReport.complete || report.empty !== afterReport.empty) {
         navigationPending = false;
         logChapterNavigation("已取消：等待期间页面、任务或完成状态发生变化，将重新检查");
         logChapterDiagnostics(root, "", afterReport);

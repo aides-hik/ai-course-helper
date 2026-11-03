@@ -1,0 +1,59 @@
+{
+  "realExtension": true,
+  "realClock": true,
+  "noGM": true,
+  "noModelKey": true,
+  "scenarios": [
+    "observed-visible-empty-marker-and-hidden-source-less-audition-helper-advance-to-the-next-http-chapter-once",
+    "hidden-audition-helper-without-visible-platform-empty-marker-blocks",
+    "visible-audition-audio-remains-a-resource",
+    "hidden-audition-audio-with-actual-src-remains-a-resource",
+    "unfinished-task-beside-the-empty-marker-and-helper-still-blocks",
+    "hidden-helper-acquiring-src-during-operation-interval-cancels-navigation"
+  ],
+  "errors": [],
+  "localReproductionOfObservedDom": true,
+  "realUserPageAutomated": false,
+  "initialDom": {
+    "documentUrl": "http://mooc1.chaoxing.com:60169/mooc-ans/knowledge/cards?scenario=reported&knowledgeid=1",
+    "childFrames": 0,
+    "audioTag": "AUDIO",
+    "audioHidden": true,
+    "audioSrc": null,
+    "currentSrc": "",
+    "sourceCount": 0,
+    "markerText": "暂无内容",
+    "ddText": "暂无内容",
+    "sameWrap": true,
+    "preload": "auto",
+    "controls": true,
+    "autobuffer": true
+  },
+  "navigation": {
+    "clicks": 1,
+    "times": [
+      6291.600000023842
+    ],
+    "loads": [
+      {
+        "time": 138.30000001192093,
+        "url": "http://mooc1.chaoxing.com:60169/mooc-ans/knowledge/cards?scenario=reported&knowledgeid=1"
+      },
+      {
+        "time": 6339.400000035763,
+        "url": "http://mooc1.chaoxing.com:60169/mooc-ans/knowledge/cards?scenario=reported&knowledgeid=2"
+      }
+    ],
+    "src": "http://mooc1.chaoxing.com:60169/mooc-ans/knowledge/cards?scenario=reported&knowledgeid=2"
+  },
+  "modelRequests": [],
+  "passed": true,
+  "version": "0.9.7",
+  "contentSha256": "FADB49B83601460D9398365BDA2870EF1A8227CCD3EC356E0EA8047E8B98F177",
+  "packageSha256": "0F2DFA926E0646A101D8D5A7B16CCA536E54A0053CBEF2E45AA715B86945AE0D",
+  "fixtureUnexpectedTraffic": [],
+  "limitations": [
+    "Local HTTP reproduction of the observed empty-page DOM; not automation of the user's real course page.",
+    "The actual extension and five-second stable observation run on the real clock."
+  ]
+}

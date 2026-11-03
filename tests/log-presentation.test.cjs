@@ -40,3 +40,19 @@ test('raw text remains literal and brief repeat merging respects a one-minute wi
   assert.equal(rows(logs).length,2);assert.equal(rows(logs,'detail')[0].displayMessage,text);
   assert.equal(overview([snapshot(1,1)]).state,'complete');
 });
+
+test('an empty chapter explains its observation window and automatic navigation setting',()=>{
+  const logs=[snapshot(0,0),entry('[章节诊断] 当前原因：本章节无任务，等待页面稳定 5 秒；任务下一步=可用','warning')];
+  assert.equal(overview(logs).badge,'无任务');assert.equal(overview(logs).progress,'0 个任务');
+  assert.match(overview(logs).note,/等待页面稳定 5 秒/);assert.equal(reminder(logs.at(-1)),false);
+  logs.push(entry('[章节诊断] 当前原因：本章节无任务，自动跳章开关关闭；任务下一步=可用','primary'));
+  assert.match(overview(logs).note,/自动跳章开关关闭/);assert.equal(overview(logs).state,'waiting');
+  assert.doesNotMatch(overview(logs).title,/任务已完成/);
+});
+
+test('an empty chapter still surfaces missing navigation and a cancelled jump',()=>{
+  const logs=[snapshot(0,0),entry('[章节诊断] 当前原因：本章节无任务，下一步按钮不可用（下一节和下一章按钮均不可用）；任务下一步=未找到','primary')];
+  assert.equal(overview(logs).state,'attention');assert.match(overview(logs).note,/按钮不可用/);
+  logs.push(entry('[章节诊断] 跳章：已取消：等待期间页面、任务或完成状态发生变化，将重新检查'));
+  assert.equal(overview(logs).state,'attention');assert.match(overview(logs).note,/已取消/);
+});

@@ -83,6 +83,12 @@
     const reason = reasonText.split("；")[0];
     const jump = jumpEntry ? logCleanDiagnostic(jumpEntry.message).replace(/^\[章节诊断\] 跳章：/, "") : "";
     const total = snapshot?.total || 0, completed = Math.min(total, snapshot?.completed || 0);
+    if (snapshot && !total && /^本章节无任务/.test(reason)) {
+      const attention = /按钮不可用|无法确定|失败/.test(reasonText) || /已取消|已停止/.test(jump);
+      return {state: attention ? "attention" : "waiting", total: 0, completed: 0,
+        badge: attention ? "待核对" : "无任务", title: "本章节没有学习任务",
+        note: jump || reason, progress: "0 个任务"};
+    }
     if (total) {
       const complete = completed === total;
       const media = recent.filter(entry => /^\[章节诊断\] 页面#.*(?:视频|音频)/.test(logMessage(entry)));

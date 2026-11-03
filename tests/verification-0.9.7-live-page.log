@@ -1,0 +1,36 @@
+{
+  "version": "0.9.7",
+  "source": "User-selected live chapter in the Codex in-app browser",
+  "topPagePath": "/mycourse/studentstudy",
+  "chapterPagePath": "/mooc-ans/knowledge/cards",
+  "liveDomInspected": true,
+  "observed": {
+    "documentReady": "complete",
+    "nestedIframeCount": 0,
+    "resourceCountBeforeFix": 1,
+    "onlyResource": {
+      "tag": "AUDIO",
+      "id": "auditionAudio",
+      "parentClass": "wrap",
+      "display": "none",
+      "sourceAttributePresent": false,
+      "sourceChildCount": 0
+    },
+    "visibleEmptyState": ".wrap > .ans-cc > .nullpage > dl > dd",
+    "emptyStateText": "暂无内容"
+  },
+  "readOnlyFixedEligibilityCheck": {
+    "platformEmptyMatched": true,
+    "emptyAudioHelpers": 1,
+    "remainingResources": 0,
+    "nestedFrames": 0
+  },
+  "manualPlatformNavigation": {
+    "nextSectionButtonClicked": true,
+    "arrivedAtFirstChildSection": true,
+    "returnedToOriginalChapter": true
+  },
+  "fixedExtensionAutomaticNavigationOnLivePageTested": false,
+  "automaticNavigationValidation": "A separate real-extension local HTTP reproduction uses the observed DOM structure; see verification-0.9.7-browser.log.",
+  "privacy": "Course identifiers, query parameters, credentials, full DOM and user content were not saved in this report."
+}

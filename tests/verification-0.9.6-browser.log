@@ -1,0 +1,52 @@
+{
+  "realExtension": true,
+  "realClock": true,
+  "noGM": true,
+  "noModelKey": true,
+  "scenarios": [
+    "no-key-empty-chapter-respects-disabled-auto-next-after-five-seconds",
+    "real-iframe-navigation-skips-empty-and-text-only-chapters-once-and-stops-at-task-placeholder",
+    "visible-loading-and-late-body-content-restart-the-empty-observation-window",
+    "late-unfinished-task-blocks-empty-navigation-and-platform-completion-resumes-normal-next",
+    "late-placeholder-during-operation-delay-cancels-the-pending-next-action",
+    "canonical-cards-src-does-not-validate-an-actual-about-srcdoc-document"
+  ],
+  "errors": [],
+  "disabledOverview": {
+    "badge": "无任务",
+    "title": "本章节没有学习任务",
+    "note": "本章节无任务，自动跳章开关关闭"
+  },
+  "chain": {
+    "clicks": 2,
+    "times": [
+      8534,
+      15032.800000011921
+    ],
+    "loads": [
+      {
+        "time": 393.5,
+        "url": "http://mooc1.chaoxing.com:52117/mooc-ans/knowledge/cards?scenario=chain&knowledgeid=1"
+      },
+      {
+        "time": 8545.700000047684,
+        "url": "http://mooc1.chaoxing.com:52117/mooc-ans/knowledge/cards?scenario=chain&knowledgeid=2"
+      },
+      {
+        "time": 15043.600000023842,
+        "url": "http://mooc1.chaoxing.com:52117/mooc-ans/knowledge/cards?scenario=chain&knowledgeid=3"
+      }
+    ],
+    "src": "http://mooc1.chaoxing.com:52117/mooc-ans/knowledge/cards?scenario=chain&knowledgeid=3"
+  },
+  "modelRequests": [],
+  "passed": true,
+  "version": "0.9.6",
+  "contentSha256": "68C0B11D027BD546F02E3C6DA18664B8218D45F7A3CC2D63A8BEF8CCB3895208",
+  "packageSha256": "E0AD3A32BD1E7949517CC51765F5862E3411B0FECE6DEA768107F7917D696DCA",
+  "fixtureUnexpectedTraffic": [],
+  "limitations": [
+    "Local synthetic course HTML in real headless Edge; not a logged-in school environment.",
+    "The production extension, scanner and five-second window run on the real clock."
+  ]
+}
